@@ -6,7 +6,7 @@ toolchain go1.21.6
 
 require (
 	github.com/hashicorp/terraform-plugin-docs v0.19.2
-	github.com/hashicorp/terraform-plugin-framework v1.8.0
+	github.com/hashicorp/terraform-plugin-framework v1.9.0
 	github.com/hashicorp/terraform-plugin-go v0.23.0
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.33.0
 	gopkg.in/yaml.v3 v3.0.1
