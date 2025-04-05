@@ -7,60 +7,148 @@ import (
 
 func TestMergeMaps(t *testing.T) {
 	cases := []struct {
-		dst    map[interface{}]interface{}
-		src    map[interface{}]interface{}
-		result map[interface{}]interface{}
+		dst    map[string]any
+		src    map[string]any
+		result map[string]any
 	}{
 		// merge maps
 		{
-			dst: map[interface{}]interface{}{
+			dst: map[string]any{
 				"e1": "abc",
 			},
-			src: map[interface{}]interface{}{
+			src: map[string]any{
 				"e2": "def",
 			},
-			result: map[interface{}]interface{}{
+			result: map[string]any{
 				"e1": "abc",
 				"e2": "def",
+			},
+		},
+		// merge empty destination map
+		{
+			dst: map[string]any{
+				"e1": nil,
+			},
+			src: map[string]any{
+				"e1": "abc",
+			},
+			result: map[string]any{
+				"e1": "abc",
+			},
+		},
+		// merge empty destination map nested
+		{
+			dst: map[string]any{
+				"e1": nil,
+			},
+			src: map[string]any{
+				"e1": map[string]any{
+					"e2": "abc",
+				},
+			},
+			result: map[string]any{
+				"e1": map[string]any{
+					"e2": "abc",
+				},
+			},
+		},
+		// merge empty source map
+		{
+			dst: map[string]any{
+				"e1": "abc",
+			},
+			src: map[string]any{
+				"e1": nil,
+			},
+			result: map[string]any{
+				"e1": "abc",
+			},
+		},
+		// merge empty source map nested
+		{
+			dst: map[string]any{
+				"e1": map[string]any{
+					"e2": "abc",
+				},
+			},
+			src: map[string]any{
+				"e1": nil,
+			},
+			result: map[string]any{
+				"e1": map[string]any{
+					"e2": "abc",
+				},
 			},
 		},
 		// merge nested maps
 		{
-			dst: map[interface{}]interface{}{
-				"root": map[interface{}]interface{}{
+			dst: map[string]any{
+				"root": map[string]any{
 					"child1": "abc",
 				},
 			},
-			src: map[interface{}]interface{}{
-				"root": map[interface{}]interface{}{
+			src: map[string]any{
+				"root": map[string]any{
 					"child2": "def",
 				},
 			},
-			result: map[interface{}]interface{}{
-				"root": map[interface{}]interface{}{
+			result: map[string]any{
+				"root": map[string]any{
 					"child1": "abc",
 					"child2": "def",
 				},
 			},
 		},
-		// merge maps with null values
+		// append when merging lists
 		{
-			dst: map[interface{}]interface{}{
-				"root": map[interface{}]interface{}{
-					"child1": map[interface{}]interface{}{
-						"child2": "abc",
+			dst: map[string]any{
+				"list": []any{
+					map[string]any{
+						"child1": "abc",
 					},
 				},
 			},
-			src: map[interface{}]interface{}{
-				"root": map[interface{}]interface{}{
-					"child1": nil,
+			src: map[string]any{
+				"list": []any{
+					map[string]any{
+						"child2": "def",
+					},
 				},
 			},
-			result: map[interface{}]interface{}{
-				"root": map[interface{}]interface{}{
-					"child1": map[interface{}]interface{}{
-						"child2": "abc",
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"child1": "abc",
+					},
+					map[string]any{
+						"child2": "def",
+					},
+				},
+			},
+		},
+		// append when merging lists with duplicate items
+		{
+			dst: map[string]any{
+				"list": []any{
+					map[string]any{
+						"child1": "abc",
+					},
+				},
+			},
+			src: map[string]any{
+				"list": []any{
+					map[string]any{
+						"child1": "abc",
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"child1": "abc",
+					},
+					map[string]any{
+						"child1": "abc",
 					},
 				},
 			},
@@ -68,256 +156,237 @@ func TestMergeMaps(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		MergeMaps(reflect.ValueOf(c.dst), reflect.ValueOf(c.src), true)
+		MergeMaps(c.src, c.dst)
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
 		}
 	}
 }
 
-func TestListItem(t *testing.T) {
+func TestMergeListItem(t *testing.T) {
 	cases := []struct {
-		dst            map[interface{}]interface{}
-		key            string
-		src            interface{}
-		mergeListItems bool
-		result         map[interface{}]interface{}
+		dst    []any
+		src    any
+		result []any
 	}{
 		// merge primitive list items
 		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					"abc",
-					"def",
-				},
+			dst: []any{
+				"abc",
+				"def",
 			},
-			key:            "list",
-			src:            "ghi",
-			mergeListItems: true,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					"abc",
-					"def",
-					"ghi",
-				},
+			src: "ghi",
+			result: []any{
+				"abc",
+				"def",
+				"ghi",
 			},
 		},
-		// merge matching primitive list items
+		// do not merge matching primitive list items
 		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					"abc",
-					"def",
-				},
+			dst: []any{
+				"abc",
+				"def",
 			},
-			key:            "list",
-			src:            "abc",
-			mergeListItems: true,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					"abc",
-					"def",
-				},
-			},
-		},
-		// merge matching primitive list items
-		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					"abc",
-					"def",
-				},
-			},
-			key:            "list",
-			src:            "abc",
-			mergeListItems: false,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					"abc",
-					"def",
-				},
+			src: "abc",
+			result: []any{
+				"abc",
+				"def",
+				"abc",
 			},
 		},
 		// merge matching map list items
 		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name": "abc",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-						},
+			dst: []any{
+				map[string]any{
+					"name": "abc",
+					"map": map[string]any{
+						"elem1": "value1",
+						"elem2": "value2",
 					},
 				},
 			},
-			key: "list",
-			src: map[interface{}]interface{}{
+			src: map[string]any{
 				"name": "abc",
-				"map": map[interface{}]interface{}{
+				"map": map[string]any{
 					"elem3": "value3",
 				},
 			},
-			mergeListItems: true,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name": "abc",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-							"elem3": "value3",
-						},
-					},
-				},
-			},
-		},
-		// append matching map list items
-		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name": "abc",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-						},
-					},
-				},
-			},
-			key: "list",
-			src: map[interface{}]interface{}{
-				"name": "abc",
-				"map": map[interface{}]interface{}{
-					"elem3": "value3",
-				},
-			},
-			mergeListItems: false,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name": "abc",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-						},
-					},
-					map[interface{}]interface{}{
-						"name": "abc",
-						"map": map[interface{}]interface{}{
-							"elem3": "value3",
-						},
+			result: []any{
+				map[string]any{
+					"name": "abc",
+					"map": map[string]any{
+						"elem1": "value1",
+						"elem2": "value2",
+						"elem3": "value3",
 					},
 				},
 			},
 		},
 		// merge matching map list items with extra src primitive attribute
 		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name": "abc",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-						},
+			dst: []any{
+				map[string]any{
+					"name": "abc",
+					"map": map[string]any{
+						"elem1": "value1",
+						"elem2": "value2",
 					},
 				},
 			},
-			key: "list",
-			src: map[interface{}]interface{}{
+			src: map[string]any{
 				"name":  "abc",
 				"name2": "def",
-				"map": map[interface{}]interface{}{
+				"map": map[string]any{
 					"elem3": "value3",
 				},
 			},
-			mergeListItems: true,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name":  "abc",
-						"name2": "def",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-							"elem3": "value3",
-						},
+			result: []any{
+				map[string]any{
+					"name":  "abc",
+					"name2": "def",
+					"map": map[string]any{
+						"elem1": "value1",
+						"elem2": "value2",
+						"elem3": "value3",
 					},
 				},
 			},
 		},
 		// merge matching map list items with extra dst primitive attribute
 		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name":  "abc",
-						"name2": "def",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-						},
+			dst: []any{
+				map[string]any{
+					"name":  "abc",
+					"name2": "def",
+					"map": map[string]any{
+						"elem1": "value1",
+						"elem2": "value2",
 					},
 				},
 			},
-			key: "list",
-			src: map[interface{}]interface{}{
+			src: map[string]any{
 				"name": "abc",
-				"map": map[interface{}]interface{}{
+				"map": map[string]any{
 					"elem3": "value3",
 				},
 			},
-			mergeListItems: true,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name":  "abc",
-						"name2": "def",
-						"map": map[interface{}]interface{}{
-							"elem1": "value1",
-							"elem2": "value2",
-							"elem3": "value3",
-						},
+			result: []any{
+				map[string]any{
+					"name":  "abc",
+					"name2": "def",
+					"map": map[string]any{
+						"elem1": "value1",
+						"elem2": "value2",
+						"elem3": "value3",
 					},
 				},
 			},
 		},
-		// not merge matching dict list items with extra dst and src primitive attribute
+		// merge matching dict list items with extra dst and src primitive attribute
 		{
-			dst: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name":  "abc",
-						"name2": "def",
-					},
+			dst: []any{
+				map[string]any{
+					"name":  "abc",
+					"name2": "def",
 				},
 			},
-			key: "list",
-			src: map[interface{}]interface{}{
+			src: map[string]any{
 				"name":  "abc",
 				"name3": "ghi",
 			},
-			mergeListItems: true,
-			result: map[interface{}]interface{}{
-				"list": []interface{}{
-					map[interface{}]interface{}{
-						"name":  "abc",
-						"name2": "def",
-					},
-					map[interface{}]interface{}{
-						"name":  "abc",
-						"name3": "ghi",
-					},
+			result: []any{
+				map[string]any{
+					"name":  "abc",
+					"name2": "def",
+					"name3": "ghi",
 				},
 			},
 		},
 	}
 
 	for _, c := range cases {
-		MergeListItem(reflect.ValueOf(c.dst), reflect.ValueOf(c.key), reflect.ValueOf(c.src), c.mergeListItems)
+		MergeListItem(c.src, &c.dst)
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
+		}
+	}
+}
+
+func TestDeduplicateListItems(t *testing.T) {
+	cases := []struct {
+		data   map[string]any
+		result map[string]any
+	}{
+		// deduplicate map list items
+		{
+			data: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "abc",
+					},
+					map[string]any{
+						"name": "abc",
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "abc",
+					},
+				},
+			},
+		},
+		// deduplicate nested map list items
+		{
+			data: map[string]any{
+				"list": []any{
+					map[string]any{
+						"nested_list": []any{
+							map[string]any{
+								"name": "abc",
+							},
+							map[string]any{
+								"name": "abc",
+							},
+						},
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"nested_list": []any{
+							map[string]any{
+								"name": "abc",
+							},
+						},
+					},
+				},
+			},
+		},
+		// do not deduplicate string list items
+		{
+			data: map[string]any{
+				"list": []any{
+					"abc",
+					"abc",
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					"abc",
+					"abc",
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		DeduplicateListItems(c.data)
+		if !reflect.DeepEqual(c.data, c.result) {
+			t.Fatalf("Error matching data and result: %#v vs %#v", c.data, c.result)
 		}
 	}
 }

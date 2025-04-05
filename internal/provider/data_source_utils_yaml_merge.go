@@ -5,7 +5,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
-	"reflect"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -73,10 +72,9 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 		config.MergeListItems = types.BoolValue(true)
 	}
 
-	merged := map[interface{}]interface{}{}
-	vMerged := reflect.ValueOf(merged)
+	merged := map[string]any{}
 	for _, input := range config.Input {
-		var data map[interface{}]interface{}
+		var data map[string]any
 		b := []byte(input)
 
 		err := YamlUnmarshal(b, &data)
@@ -88,16 +86,11 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 			return
 		}
 
-		vData := reflect.ValueOf(data)
+		MergeMaps(data, merged)
+	}
 
-		err = MergeMaps(vMerged, vData, config.MergeListItems.ValueBool())
-		if err != nil {
-			resp.Diagnostics.AddError(
-				"Error merging YAML",
-				fmt.Sprintf("Error merging YAML: %s", err),
-			)
-			return
-		}
+	if config.MergeListItems.ValueBool() {
+		DeduplicateListItems(merged)
 	}
 
 	output, err := yaml.Marshal(merged)

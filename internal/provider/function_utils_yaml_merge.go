@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"reflect"
 
 	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -45,10 +44,9 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 		return
 	}
 
-	merged := map[interface{}]interface{}{}
-	vMerged := reflect.ValueOf(merged)
+	merged := map[string]any{}
 	for _, input := range input {
-		var data map[interface{}]interface{}
+		var data map[string]any
 		b := []byte(input)
 
 		err := YamlUnmarshal(b, &data)
@@ -57,14 +55,10 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 			return
 		}
 
-		vData := reflect.ValueOf(data)
-
-		err = MergeMaps(vMerged, vData, true)
-		if err != nil {
-			function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging YAML: "+err.Error()))
-			return
-		}
+		MergeMaps(data, merged)
 	}
+
+	DeduplicateListItems(merged)
 
 	output, err := yaml.Marshal(merged)
 	if err != nil {

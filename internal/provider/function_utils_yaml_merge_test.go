@@ -17,7 +17,7 @@ func TestYamlMergeFunction_Known(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFucntionUtilsYamlMerge_config(basic_inputYaml1, basic_inputYaml2, map[string]string{"ELEM1": "value1"}),
+				Config: testAccFunctionUtilsYamlMerge_config(basic_inputYaml1, basic_inputYaml2, map[string]string{"ELEM1": "value1"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("test", basic_ouputYaml),
 				),
@@ -26,7 +26,7 @@ func TestYamlMergeFunction_Known(t *testing.T) {
 	})
 }
 
-func testAccFucntionUtilsYamlMerge_config(yaml1, yaml2 string, envs map[string]string) string {
+func testAccFunctionUtilsYamlMerge_config(yaml1, yaml2 string, envs map[string]string) string {
 	for k, v := range envs {
 		os.Setenv(k, v)
 	}
