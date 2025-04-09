@@ -283,7 +283,7 @@ func TestMergeListItem(t *testing.T) {
 				},
 			},
 		},
-		// merge matching dict list items with extra dst and src primitive attribute
+		// do not merge matching dict list items with extra dst and src primitive attribute
 		{
 			dst: []any{
 				map[string]any{
@@ -299,6 +299,9 @@ func TestMergeListItem(t *testing.T) {
 				map[string]any{
 					"name":  "abc",
 					"name2": "def",
+				},
+				map[string]any{
+					"name":  "abc",
 					"name3": "ghi",
 				},
 			},

@@ -51,6 +51,8 @@ func MergeListItem(src any, dst *[]any) {
 		for i, item := range *dst {
 			match := true
 			comparison := false
+			unique_source := false
+			unique_dest := false
 			// iterate over all source map keys and values
 			iter := srcValue.MapRange()
 			for iter.Next() {
@@ -67,7 +69,11 @@ func MergeListItem(src any, dst *[]any) {
 				if x.Kind() == reflect.Interface {
 					x = x.Elem()
 				}
-				if sValue.Kind() == reflect.Map || sValue.Kind() == reflect.Slice || !x.IsValid() || !sValue.IsValid() {
+				if sValue.Kind() == reflect.Map || sValue.Kind() == reflect.Slice {
+					continue
+				}
+				if !x.IsValid() || !sValue.IsValid() {
+					unique_source = true
 					continue
 				}
 				comparison = true
@@ -91,7 +97,11 @@ func MergeListItem(src any, dst *[]any) {
 				if x.Kind() == reflect.Interface {
 					x = x.Elem()
 				}
-				if dValue.Kind() == reflect.Map || dValue.Kind() == reflect.Slice || !x.IsValid() || !dValue.IsValid() {
+				if dValue.Kind() == reflect.Map || dValue.Kind() == reflect.Slice {
+					continue
+				}
+				if !x.IsValid() || !dValue.IsValid() {
+					unique_dest = true
 					continue
 				}
 				comparison = true
@@ -100,7 +110,7 @@ func MergeListItem(src any, dst *[]any) {
 				}
 			}
 			// Check if all primitive values have matched AND at least one comparison was done
-			if match && comparison {
+			if match && comparison && !(unique_source && unique_dest) {
 				MergeMaps(srcValue.Interface().(map[string]any), (*dst)[i].(map[string]any))
 				return
 			}
