@@ -1,4 +1,4 @@
-## 0.3.0 (unreleased)
+## 1.0.0
 
 - BREAKING CHANGE: Do not deduplicate items in a list of primitive values, for example a list of strings
 - BREAKING CHANGE: Deduplicate items in a list of dictionaries consistently, regardless of whether they are in the same YAML string or not
