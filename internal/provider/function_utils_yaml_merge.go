@@ -51,7 +51,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 
 		err := YamlUnmarshal(b, &data)
 		if err != nil {
-			function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error reading YAML string: "+err.Error()))
+			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error reading YAML string: "+err.Error()))
 			return
 		}
 
@@ -62,7 +62,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 
 	output, err := yaml.Marshal(merged)
 	if err != nil {
-		function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error converting results to YAML: "+err.Error()))
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error converting results to YAML: "+err.Error()))
 		return
 	}
 
