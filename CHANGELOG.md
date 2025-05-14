@@ -1,3 +1,7 @@
+## 1.0.1 (unreleased)
+
+- Fix error handling in `yaml_merge` provider function
+
 ## 1.0.0
 
 - BREAKING CHANGE: Do not deduplicate items in a list of primitive values, for example a list of strings
