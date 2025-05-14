@@ -1,4 +1,4 @@
-## 1.0.1 (unreleased)
+## 1.0.1
 
 - Fix error handling in `yaml_merge` provider function
 
