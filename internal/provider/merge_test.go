@@ -153,7 +153,7 @@ func TestMergeMaps(t *testing.T) {
 				},
 			},
 		},
-		// src replaces dst primitive value
+		// src bool replaces dst primitive value
 		{
 			dst: map[string]any{
 				"attr": false,
@@ -174,6 +174,62 @@ func TestMergeMaps(t *testing.T) {
 			},
 			result: map[string]any{
 				"attr": false,
+			},
+		},
+		// empty src string does not replace dst string
+		{
+			dst: map[string]any{
+				"attr": "abc",
+			},
+			src: map[string]any{
+				"attr": "",
+			},
+			result: map[string]any{
+				"attr": "abc",
+			},
+		},
+		// src string replaces dst string
+		{
+			dst: map[string]any{
+				"attr": "abc",
+			},
+			src: map[string]any{
+				"attr": "def",
+			},
+			result: map[string]any{
+				"attr": "def",
+			},
+		},
+		// src number does replace dst number
+		{
+			dst: map[string]any{
+				"attr": 5,
+			},
+			src: map[string]any{
+				"attr": 0,
+			},
+			result: map[string]any{
+				"attr": 0,
+			},
+		},
+		// empty src map does not replace dst map
+		{
+			dst: map[string]any{
+				"attr": "abc",
+			},
+			src: map[string]any{},
+			result: map[string]any{
+				"attr": "abc",
+			},
+		},
+		// src map gets merged with dst map
+		{
+			dst: map[string]any{},
+			src: map[string]any{
+				"attr": "abc",
+			},
+			result: map[string]any{
+				"attr": "abc",
 			},
 		},
 	}
