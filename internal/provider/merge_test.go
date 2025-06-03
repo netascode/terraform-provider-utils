@@ -153,6 +153,29 @@ func TestMergeMaps(t *testing.T) {
 				},
 			},
 		},
+		// src replaces dst primitive value
+		{
+			dst: map[string]any{
+				"attr": false,
+			},
+			src: map[string]any{
+				"attr": true,
+			},
+			result: map[string]any{
+				"attr": true,
+			},
+		},
+		{
+			dst: map[string]any{
+				"attr": true,
+			},
+			src: map[string]any{
+				"attr": false,
+			},
+			result: map[string]any{
+				"attr": false,
+			},
+		},
 	}
 
 	for _, c := range cases {

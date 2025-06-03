@@ -33,7 +33,7 @@ func MergeMaps(src, dst map[string]any) map[string]any {
 			if dValue.Kind() == reflect.Slice {
 				dstValue.SetMapIndex(sKey, reflect.AppendSlice(dValue, sValue))
 			}
-		} else if sValue.Kind() != reflect.Invalid && !sValue.IsZero() {
+		} else if sValue.Kind() != reflect.Invalid && !(sValue.Kind() == reflect.String && sValue.IsZero()) {
 			// else we have primitive type -> add/replace dst value
 			dstValue.SetMapIndex(sKey, sValue)
 		}

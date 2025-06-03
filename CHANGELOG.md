@@ -1,3 +1,7 @@
+## 1.0.2 (unreleased)
+
+- Fix merging of boolean values in YAML dictionaries
+
 ## 1.0.1
 
 - Fix error handling in `yaml_merge` provider function
