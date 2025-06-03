@@ -212,6 +212,30 @@ func TestMergeMaps(t *testing.T) {
 				"attr": 0,
 			},
 		},
+		// src number does replace dst string
+		{
+			dst: map[string]any{
+				"attr": "abc",
+			},
+			src: map[string]any{
+				"attr": 0,
+			},
+			result: map[string]any{
+				"attr": 0,
+			},
+		},
+		// src string does replace dst number
+		{
+			dst: map[string]any{
+				"attr": 5,
+			},
+			src: map[string]any{
+				"attr": "abc",
+			},
+			result: map[string]any{
+				"attr": "abc",
+			},
+		},
 		// empty src map does not replace dst map
 		{
 			dst: map[string]any{
