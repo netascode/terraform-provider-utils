@@ -1,4 +1,4 @@
-## 1.0.2 (unreleased)
+## 1.0.2
 
 - Fix merging of boolean values in YAML dictionaries
 
