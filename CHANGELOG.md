@@ -1,3 +1,7 @@
+## 1.1.0 (unreleased)
+
+- Add `normalize_vlans` function
+
 ## 1.0.2
 
 - Fix merging of boolean values in YAML dictionaries
