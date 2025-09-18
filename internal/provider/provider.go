@@ -48,6 +48,7 @@ func (p *utilsProvider) DataSources(ctx context.Context) []func() datasource.Dat
 func (p *utilsProvider) Functions(ctx context.Context) []func() function.Function {
 	return []func() function.Function{
 		NewYamlMergeFunction,
+		NewNormalizeVlansFunction,
 	}
 }
 
