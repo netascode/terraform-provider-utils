@@ -24,11 +24,8 @@ func TestMergeFunction_Basic(t *testing.T) {
 					// Test single input returns the input unchanged
 					resource.TestCheckOutput("test_single", `{"elem1":"value1","nested":{"child":"data"}}`),
 
-					// Test basic merge with list item merging enabled (default)
+					// Test basic merge with list item deduplication
 					resource.TestCheckOutput("test_basic_merge", `{"list":[{"map":{"a1":1,"a2":2,"b1":1},"name":"a1"},{"name":"a2"},{"name":"a3"}],"root":{"child1":{"cc1":1,"cc2":2},"elem1":"value1","elem2":"value2"}}`),
-
-					// Test merge with list item merging disabled
-					resource.TestCheckOutput("test_no_merge_lists", `{"list":[{"map":{"a1":1,"b1":1},"name":"a1"},{"name":"a2"},{"map":{"a2":2},"name":"a1"},{"name":"a3"}],"root":{"child1":{"cc1":1,"cc2":2},"elem1":"value1","elem2":"value2"}}`),
 				),
 			},
 		},
@@ -54,7 +51,7 @@ func TestMergeFunction_EdgeCases(t *testing.T) {
 					// Test deep nesting
 					resource.TestCheckOutput("test_deep_nesting", `{"level1":{"level2":{"level3":{"level4":{"deep":"value","new":"data"}}}}}`),
 
-					// Test array concatenation without merging
+					// Test array merging with deduplication - lists have no matching items so result is concatenated
 					resource.TestCheckOutput("test_array_concat", `{"items":[1,2,3,4]}`),
 				),
 			},
@@ -150,22 +147,17 @@ func testAccFunctionUtilsMerge_basic() string {
 
 	# Test empty input
 	output "test_empty" {
-		value = jsonencode(provider::utils::merge([], true))
+		value = jsonencode(provider::utils::merge([]))
 	}
 
 	# Test single input
 	output "test_single" {
-		value = jsonencode(provider::utils::merge([local.single_input], true))
+		value = jsonencode(provider::utils::merge([local.single_input]))
 	}
 
-	# Test basic merge with list item merging enabled (default)
+	# Test basic merge
 	output "test_basic_merge" {
-		value = jsonencode(provider::utils::merge([local.input1, local.input2], true))
-	}
-
-	# Test merge with list item merging disabled
-	output "test_no_merge_lists" {
-		value = jsonencode(provider::utils::merge([local.input1, local.input2], false))
+		value = jsonencode(provider::utils::merge([local.input1, local.input2]))
 	}
 	`
 }
@@ -236,58 +228,25 @@ func testAccFunctionUtilsMerge_edgeCases() string {
 
 	# Test null value handling
 	output "test_null_values" {
-		value = jsonencode(provider::utils::merge([local.input_with_nulls1, local.input_with_nulls2], true))
+		value = jsonencode(provider::utils::merge([local.input_with_nulls1, local.input_with_nulls2]))
 	}
 
 	# Test different data types
 	output "test_data_types" {
-		value = jsonencode(provider::utils::merge([local.types_input1, local.types_input2], true))
+		value = jsonencode(provider::utils::merge([local.types_input1, local.types_input2]))
 	}
 
 	# Test deep nesting
 	output "test_deep_nesting" {
-		value = jsonencode(provider::utils::merge([local.deep_input1, local.deep_input2], true))
+		value = jsonencode(provider::utils::merge([local.deep_input1, local.deep_input2]))
 	}
 
-	# Test array concatenation without merging
+	# Test array merging with deduplication
 	output "test_array_concat" {
-		value = jsonencode(provider::utils::merge([local.array_input1, local.array_input2], false))
+		value = jsonencode(provider::utils::merge([local.array_input1, local.array_input2]))
 	}
 	`
 }
-
-// Disabled test helper function - kept for reference
-// The test using this function is disabled because merge.go uses panic() for depth limits
-// func testAccFunctionUtilsMerge_deepRecursion() string {
-// 	// Build a deeply nested structure programmatically
-// 	var deepStructure strings.Builder
-// 	deepStructure.WriteString(`
-// 	locals {
-// 		# Create a deeply nested structure to test recursion limits
-// 		deep_structure = {
-// 			a = {`)
-//
-// 	// Create 105 levels of nesting to exceed the 100 level limit
-// 	for i := 0; i < 105; i++ {
-// 		deepStructure.WriteString(fmt.Sprintf("\n\t\t\t\tlevel%d = {", i))
-// 	}
-// 	deepStructure.WriteString("\n\t\t\t\t\tvalue = \"deep\"")
-// 	for i := 0; i < 105; i++ {
-// 		deepStructure.WriteString("\n\t\t\t\t}")
-// 	}
-//
-// 	deepStructure.WriteString(`
-// 			}
-// 		}
-// 	}
-//
-// 	# This should fail due to recursion depth limit
-// 	output "test_deep_recursion" {
-// 		value = jsonencode(provider::utils::merge([local.deep_structure], true))
-// 	}
-// 	`)
-// 	return deepStructure.String()
-// }
 
 func testAccFunctionUtilsMerge_invalidInput() string {
 	return `
@@ -299,7 +258,7 @@ func testAccFunctionUtilsMerge_invalidInput() string {
 
 	# This should fail - mixing map and string inputs
 	output "test_invalid_input" {
-		value = jsonencode(provider::utils::merge([local.valid_input, "invalid"], true))
+		value = jsonencode(provider::utils::merge([local.valid_input, "invalid"]))
 	}
 	`
 }

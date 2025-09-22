@@ -52,18 +52,13 @@ locals {
   }
 }
 
-# Merge data structures with list item merging enabled (default behavior)
-output "merged_with_list_merging" {
-  value = provider::utils::merge([local.data_1, local.data_2], true)
-}
-
-# Merge data structures with list item merging disabled
-output "merged_without_list_merging" {
-  value = provider::utils::merge([local.data_1, local.data_2], false)
+# Merge data structures (list items are automatically deduplicated)
+output "merged" {
+  value = provider::utils::merge([local.data_1, local.data_2])
 }
 
 /*
-merged_with_list_merging = {
+merged = {
   "list" = [
     {
       "map" = {
@@ -75,38 +70,6 @@ merged_with_list_merging = {
     },
     {
       "name" = "a2"
-    },
-    {
-      "name" = "a3"
-    },
-  ]
-  "root" = {
-    "child1" = {
-      "cc1" = 1
-      "cc2" = 2
-    }
-    "elem1" = "value1"
-    "elem2" = "value2"
-  }
-}
-
-merged_without_list_merging = {
-  "list" = [
-    {
-      "map" = {
-        "a1" = 1
-        "b1" = 1
-      }
-      "name" = "a1"
-    },
-    {
-      "name" = "a2"
-    },
-    {
-      "map" = {
-        "a2" = 2
-      }
-      "name" = "a1"
     },
     {
       "name" = "a3"

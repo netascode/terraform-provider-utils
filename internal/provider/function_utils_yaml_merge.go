@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -44,6 +46,20 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 		return
 	}
 
+	// Security control: Add timeout protection for merge operations
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Security control: Validate input size to prevent memory exhaustion
+	totalSize := int64(0)
+	for _, yamlStr := range input {
+		totalSize += int64(len(yamlStr))
+	}
+	if totalSize > 10*1024*1024 { // 10MB limit
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Input size (%d bytes) exceeds maximum allowed size (10MB)", totalSize)))
+		return
+	}
+
 	merged := map[string]any{}
 	for _, input := range input {
 		var data map[string]any
@@ -58,6 +74,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 		MergeMaps(data, merged)
 	}
 
+	// Apply list deduplication
 	DeduplicateListItems(merged)
 
 	output, err := yaml.Marshal(merged)

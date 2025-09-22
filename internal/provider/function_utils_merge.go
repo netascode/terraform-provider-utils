@@ -29,10 +29,6 @@ func (r MergeFunction) Definition(_ context.Context, _ function.DefinitionReques
 				Name:                "input",
 				MarkdownDescription: "A list of data structures to be merged.",
 			},
-			function.BoolParameter{
-				Name:                "merge_list_items",
-				MarkdownDescription: "Merge list entries if all primitive values match. Default value is `true`.",
-			},
 		},
 		Return: function.DynamicReturn{},
 	}
@@ -40,9 +36,8 @@ func (r MergeFunction) Definition(_ context.Context, _ function.DefinitionReques
 
 func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *function.RunResponse) {
 	var inputDynamic types.Dynamic
-	var mergeListItems types.Bool
 
-	resp.Error = function.ConcatFuncErrors(req.Arguments.Get(ctx, &inputDynamic, &mergeListItems))
+	resp.Error = function.ConcatFuncErrors(req.Arguments.Get(ctx, &inputDynamic))
 
 	if resp.Error != nil {
 		return
@@ -51,12 +46,6 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 	// Security control: Add timeout protection for merge operations
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-
-	// Default merge_list_items to true if not provided
-	shouldMergeListItems := true
-	if !mergeListItems.IsNull() && !mergeListItems.IsUnknown() {
-		shouldMergeListItems = mergeListItems.ValueBool()
-	}
 
 	// Security control: Validate input size to prevent memory exhaustion
 	if err := validateInputSize(inputDynamic, 10*1024*1024); err != nil { // 10MB limit
@@ -138,10 +127,8 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 		}
 	}
 
-	// Apply list deduplication if requested
-	if shouldMergeListItems {
-		DeduplicateListItems(merged)
-	}
+	// Apply list deduplication
+	DeduplicateListItems(merged)
 
 	// Convert back to Dynamic
 	result, err := convertNativeToDynamic(ctx, merged)
