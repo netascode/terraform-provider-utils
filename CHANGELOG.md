@@ -1,6 +1,7 @@
 ## 1.1.0 (unreleased)
 
 - Add `normalize_vlans` function
+- Add `merge`function
 
 ## 1.0.2
 
