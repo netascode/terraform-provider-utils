@@ -5,6 +5,16 @@ import (
 )
 
 func MergeMaps(src, dst map[string]any) map[string]any {
+	return MergeMapsWithDepth(src, dst, 0)
+}
+
+// MergeMapsWithDepth merges maps with recursion depth tracking for security
+func MergeMapsWithDepth(src, dst map[string]any, depth int) map[string]any {
+	// Security control: prevent stack overflow from deep recursion
+	if depth > 100 {
+		panic("maximum recursion depth exceeded (100 levels) during map merge")
+	}
+
 	srcValue := reflect.ValueOf(src)
 	dstValue := reflect.ValueOf(dst)
 
@@ -26,7 +36,7 @@ func MergeMaps(src, dst map[string]any) map[string]any {
 		} else if sValue.Kind() == reflect.Map {
 			dValue = reflect.ValueOf(dValue.Interface())
 			if dValue.Kind() == reflect.Map {
-				dstValue.SetMapIndex(sKey, reflect.ValueOf(MergeMaps(sValue.Interface().(map[string]any), dValue.Interface().(map[string]any))))
+				dstValue.SetMapIndex(sKey, reflect.ValueOf(MergeMapsWithDepth(sValue.Interface().(map[string]any), dValue.Interface().(map[string]any), depth+1)))
 			}
 		} else if sValue.Kind() == reflect.Slice {
 			dValue = reflect.ValueOf(dValue.Interface())
@@ -111,7 +121,7 @@ func MergeListItem(src any, dst *[]any) {
 			}
 			// Check if all primitive values have matched AND at least one comparison was done
 			if match && comparison && !(unique_source && unique_dest) {
-				MergeMaps(srcValue.Interface().(map[string]any), (*dst)[i].(map[string]any))
+				MergeMapsWithDepth(srcValue.Interface().(map[string]any), (*dst)[i].(map[string]any), 0)
 				return
 			}
 		}
@@ -122,6 +132,16 @@ func MergeListItem(src any, dst *[]any) {
 }
 
 func DeduplicateListItems(data map[string]any) map[string]any {
+	return DeduplicateListItemsWithDepth(data, 0)
+}
+
+// DeduplicateListItemsWithDepth deduplicates list items with recursion depth tracking
+func DeduplicateListItemsWithDepth(data map[string]any, depth int) map[string]any {
+	// Security control: prevent stack overflow from deep recursion
+	if depth > 100 {
+		panic("maximum recursion depth exceeded (100 levels) during list deduplication")
+	}
+
 	dataValue := reflect.ValueOf(data)
 	iter := dataValue.MapRange()
 	for iter.Next() {
@@ -135,7 +155,7 @@ func DeduplicateListItems(data map[string]any) map[string]any {
 		}
 
 		if value.Kind() == reflect.Map {
-			DeduplicateListItems(value.Interface().(map[string]any))
+			DeduplicateListItemsWithDepth(value.Interface().(map[string]any), depth+1)
 		} else if value.Kind() == reflect.Slice {
 			deduplicatedList := make([]any, 0, value.Len())
 			for i := range value.Len() {
@@ -143,7 +163,7 @@ func DeduplicateListItems(data map[string]any) map[string]any {
 			}
 			for _, item := range deduplicatedList {
 				if reflect.ValueOf(item).Kind() == reflect.Map {
-					DeduplicateListItems(item.(map[string]any))
+					DeduplicateListItemsWithDepth(item.(map[string]any), depth+1)
 				}
 			}
 			dataValue.SetMapIndex(key, reflect.ValueOf(deduplicatedList))
