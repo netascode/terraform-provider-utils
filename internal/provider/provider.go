@@ -49,6 +49,7 @@ func (p *utilsProvider) Functions(ctx context.Context) []func() function.Functio
 	return []func() function.Function{
 		NewYamlMergeFunction,
 		NewNormalizeVlansFunction,
+		NewNormalizeMaskFunction,
 		NewMergeFunction,
 	}
 }
