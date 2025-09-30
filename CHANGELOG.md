@@ -2,6 +2,7 @@
 
 - Add `normalize_vlans` function
 - Add `merge`function
+- Add `normalize_mask` function
 
 ## 1.0.2
 
