@@ -18,7 +18,7 @@ func TestNormalizeVlansFunction_Known(t *testing.T) {
 			{
 				Config: testAccFunctionUtilsNormalizeVlans_basic(),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckOutput("test", "1-2,5,10-30,40-50"),
+					resource.TestCheckOutput("test", "1,2,5,10-30,40-50"),
 				),
 			},
 		},
@@ -392,7 +392,7 @@ func TestNormalizeVlansFunction_StringFormat_Explicit(t *testing.T) {
 			{
 				Config: testAccFunctionUtilsNormalizeVlans_stringFormat_explicit(),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckOutput("test", "1-2,5,10-30"),
+					resource.TestCheckOutput("test", "1,2,5,10-30"),
 				),
 			},
 		},

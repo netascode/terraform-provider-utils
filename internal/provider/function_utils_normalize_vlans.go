@@ -62,7 +62,7 @@ func (r NormalizeVlansFunction) Metadata(_ context.Context, req function.Metadat
 func (r NormalizeVlansFunction) Definition(_ context.Context, _ function.DefinitionRequest, resp *function.DefinitionResponse) {
 	resp.Definition = function.Definition{
 		Summary:             "Normalize VLAN IDs and ranges into a compact string format or list of integers",
-		MarkdownDescription: "Takes an object with optional `ids` (list of integers) and `ranges` (list of objects with `from`/`to` fields) and a required `format` parameter. Returns a normalized representation as either a string or list of integers. Consecutive IDs are grouped into ranges in string format. Both `ids` and `ranges` fields are optional and can be omitted from the input object.",
+		MarkdownDescription: "Takes an object with optional `ids` (list of integers) and `ranges` (list of objects with `from`/`to` fields) and a required `format` parameter. Returns a normalized representation as either a string or list of integers. In string format, 3 or more consecutive IDs are grouped into ranges (e.g., '10-20'), while individual or pairs of VLANs are listed separately (e.g., '1,2' not '1-2'). Both `ids` and `ranges` fields are optional and can be omitted from the input object.",
 		Parameters: []function.Parameter{
 			function.DynamicParameter{
 				Name:                "input",
@@ -70,7 +70,7 @@ func (r NormalizeVlansFunction) Definition(_ context.Context, _ function.Definit
 			},
 			function.StringParameter{
 				Name:                "format",
-				MarkdownDescription: "Required output format: 'string' for compact range notation (e.g., '1-2,5,10-30') or 'list' for array of individual VLAN IDs (e.g., [1,2,5,10,11,12,...,30]).",
+				MarkdownDescription: "Required output format: 'string' for compact range notation (e.g., '1,2,5,10-30' where ranges are only used for 3+ consecutive VLANs) or 'list' for array of individual VLAN IDs (e.g., [1,2,5,10,11,12,...,30]).",
 			},
 		},
 		Return: function.DynamicReturn{},
@@ -290,7 +290,7 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 		dynamicValue := types.DynamicValue(vlanList)
 		resp.Error = function.ConcatFuncErrors(resp.Result.Set(ctx, dynamicValue))
 	} else {
-		// Return as string with range notation (existing logic)
+		// Return as string with range notation (only for 3+ consecutive VLANs)
 		var result []string
 		start := vlans[0]
 		end := vlans[0]
@@ -301,10 +301,15 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 				end = vlans[i]
 			} else {
 				// Non-consecutive VLAN, finalize the current range
-				if start == end {
-					result = append(result, strconv.Itoa(start))
-				} else {
+				rangeSize := end - start + 1
+				if rangeSize >= 3 {
+					// Use range notation for 3 or more consecutive VLANs
 					result = append(result, fmt.Sprintf("%d-%d", start, end))
+				} else {
+					// Output individual VLANs for 1 or 2 consecutive IDs
+					for j := start; j <= end; j++ {
+						result = append(result, strconv.Itoa(j))
+					}
 				}
 				start = vlans[i]
 				end = vlans[i]
@@ -312,10 +317,15 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 		}
 
 		// Add the final range
-		if start == end {
-			result = append(result, strconv.Itoa(start))
-		} else {
+		rangeSize := end - start + 1
+		if rangeSize >= 3 {
+			// Use range notation for 3 or more consecutive VLANs
 			result = append(result, fmt.Sprintf("%d-%d", start, end))
+		} else {
+			// Output individual VLANs for 1 or 2 consecutive IDs
+			for j := start; j <= end; j++ {
+				result = append(result, strconv.Itoa(j))
+			}
 		}
 
 		output := strings.Join(result, ",")

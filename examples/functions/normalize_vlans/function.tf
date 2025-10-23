@@ -32,7 +32,10 @@ output "ranges_list" {
 /*
 Expected outputs:
 
-mixed_vlans_string = "1-2,5,10-20,40-50"
+mixed_vlans_string = "1,2,5,10-20,40-50"
 individual_vlans_list = [100, 200, 300, 400]
 ranges_list = [10, 11, 12, 20, 21, 22]
+
+Note: Range notation (e.g., "10-20") is only used for 3 or more consecutive VLANs.
+Individual or pairs of VLANs are listed separately (e.g., "1,2" not "1-2").
 */
