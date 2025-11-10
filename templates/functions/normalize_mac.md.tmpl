@@ -1,0 +1,22 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# function: {{.Name}}
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+{{ tffile "examples/functions/normalize_mac/function.tf" }}
+
+## Signature
+
+{{ .FunctionSignatureMarkdown }}
+
+## Arguments
+
+{{ .FunctionArgumentsMarkdown }}
