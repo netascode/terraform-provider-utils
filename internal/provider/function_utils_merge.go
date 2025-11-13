@@ -120,15 +120,12 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 		}
 
 		if dataMap, ok := data.(map[string]any); ok {
-			MergeMaps(dataMap, merged)
+			MergeMaps(dataMap, merged, true)
 		} else {
 			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("All inputs must be maps/objects"))
 			return
 		}
 	}
-
-	// Apply list deduplication
-	DeduplicateListItems(merged)
 
 	// Convert back to Dynamic
 	result, err := convertNativeToDynamic(ctx, merged)

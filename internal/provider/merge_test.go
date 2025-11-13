@@ -126,7 +126,7 @@ func TestMergeMaps(t *testing.T) {
 				},
 			},
 		},
-		// append when merging lists with duplicate items
+		// merge matching items across lists (no duplicates within each list)
 		{
 			dst: map[string]any{
 				"list": []any{
@@ -144,9 +144,6 @@ func TestMergeMaps(t *testing.T) {
 			},
 			result: map[string]any{
 				"list": []any{
-					map[string]any{
-						"child1": "abc",
-					},
 					map[string]any{
 						"child1": "abc",
 					},
@@ -256,10 +253,108 @@ func TestMergeMaps(t *testing.T) {
 				"attr": "abc",
 			},
 		},
+		// concatenate when source list has duplicates (preserve duplicates)
+		{
+			dst: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+						"x":    1,
+					},
+				},
+			},
+			src: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+					},
+					map[string]any{
+						"name": "a",
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+						"x":    1,
+					},
+					map[string]any{
+						"name": "a",
+					},
+					map[string]any{
+						"name": "a",
+					},
+				},
+			},
+		},
+		// concatenate when destination list has duplicates (preserve duplicates)
+		{
+			dst: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+					},
+					map[string]any{
+						"name": "a",
+					},
+				},
+			},
+			src: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+						"x":    1,
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+					},
+					map[string]any{
+						"name": "a",
+					},
+					map[string]any{
+						"name": "a",
+						"x":    1,
+					},
+				},
+			},
+		},
+		// merge when no duplicates present
+		{
+			dst: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+						"x":    1,
+					},
+				},
+			},
+			src: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+						"y":    2,
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name": "a",
+						"x":    1,
+						"y":    2,
+					},
+				},
+			},
+		},
 	}
 
 	for _, c := range cases {
-		MergeMaps(c.src, c.dst)
+		MergeMaps(c.src, c.dst, true)
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
 		}
@@ -386,7 +481,7 @@ func TestMergeListItem(t *testing.T) {
 				},
 			},
 		},
-		// do not merge matching dict list items with extra dst and src primitive attribute
+		// merge matching dict list items with extra dst and src primitive attribute
 		{
 			dst: []any{
 				map[string]any{
@@ -402,9 +497,6 @@ func TestMergeListItem(t *testing.T) {
 				map[string]any{
 					"name":  "abc",
 					"name2": "def",
-				},
-				map[string]any{
-					"name":  "abc",
 					"name3": "ghi",
 				},
 			},
@@ -412,87 +504,9 @@ func TestMergeListItem(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		MergeListItem(c.src, &c.dst)
+		MergeListItem(c.src, &c.dst, true)
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
-		}
-	}
-}
-
-func TestDeduplicateListItems(t *testing.T) {
-	cases := []struct {
-		data   map[string]any
-		result map[string]any
-	}{
-		// deduplicate map list items
-		{
-			data: map[string]any{
-				"list": []any{
-					map[string]any{
-						"name": "abc",
-					},
-					map[string]any{
-						"name": "abc",
-					},
-				},
-			},
-			result: map[string]any{
-				"list": []any{
-					map[string]any{
-						"name": "abc",
-					},
-				},
-			},
-		},
-		// deduplicate nested map list items
-		{
-			data: map[string]any{
-				"list": []any{
-					map[string]any{
-						"nested_list": []any{
-							map[string]any{
-								"name": "abc",
-							},
-							map[string]any{
-								"name": "abc",
-							},
-						},
-					},
-				},
-			},
-			result: map[string]any{
-				"list": []any{
-					map[string]any{
-						"nested_list": []any{
-							map[string]any{
-								"name": "abc",
-							},
-						},
-					},
-				},
-			},
-		},
-		// do not deduplicate string list items
-		{
-			data: map[string]any{
-				"list": []any{
-					"abc",
-					"abc",
-				},
-			},
-			result: map[string]any{
-				"list": []any{
-					"abc",
-					"abc",
-				},
-			},
-		},
-	}
-
-	for _, c := range cases {
-		DeduplicateListItems(c.data)
-		if !reflect.DeepEqual(c.data, c.result) {
-			t.Fatalf("Error matching data and result: %#v vs %#v", c.data, c.result)
 		}
 	}
 }

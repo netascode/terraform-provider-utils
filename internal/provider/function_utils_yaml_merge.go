@@ -71,11 +71,8 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 			return
 		}
 
-		MergeMaps(data, merged)
+		MergeMaps(data, merged, true)
 	}
-
-	// Apply list deduplication
-	DeduplicateListItems(merged)
 
 	output, err := yaml.Marshal(merged)
 	if err != nil {

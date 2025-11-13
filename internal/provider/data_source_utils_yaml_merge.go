@@ -86,11 +86,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 			return
 		}
 
-		MergeMaps(data, merged)
-	}
-
-	if config.MergeListItems.ValueBool() {
-		DeduplicateListItems(merged)
+		MergeMaps(data, merged, config.MergeListItems.ValueBool())
 	}
 
 	output, err := yaml.Marshal(merged)
