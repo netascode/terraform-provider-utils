@@ -179,6 +179,16 @@ func MergeListItem(src any, dst *[]any, deduplicate bool) {
 	}
 	if srcValue.Kind() == reflect.Map {
 		for i, item := range *dst {
+			// Check if the destination item is also a map before trying to compare
+			itemValue := reflect.ValueOf(item)
+			if itemValue.Kind() == reflect.Interface {
+				itemValue = itemValue.Elem()
+			}
+			// Skip this item if it's not a map - can't merge map with non-map
+			if itemValue.Kind() != reflect.Map {
+				continue
+			}
+
 			match := true
 			comparison := false
 
@@ -194,7 +204,7 @@ func MergeListItem(src any, dst *[]any, deduplicate bool) {
 					sValue = sValue.Elem()
 				}
 
-				x := reflect.ValueOf(item).MapIndex(sKey)
+				x := itemValue.MapIndex(sKey)
 				if x.Kind() == reflect.Interface {
 					x = x.Elem()
 				}
@@ -209,8 +219,8 @@ func MergeListItem(src any, dst *[]any, deduplicate bool) {
 					match = false
 				}
 			}
-			// Iterate over all dst map keys and values
-			iter = reflect.ValueOf(item).MapRange()
+			// iterate over all dst map keys and values
+			iter = itemValue.MapRange()
 			for iter.Next() {
 				dKey := iter.Key()
 				if dKey.Kind() == reflect.Interface {

@@ -1,8 +1,9 @@
-## 1.1.0 (unreleased)
+## Unreleased
 
 - Add `normalize_vlans` function
 - Add `merge` function
 - Add `normalize_mask` function
+- Handle merging of scalars and maps in the same list gracefully
 
 ## 1.0.2
 
