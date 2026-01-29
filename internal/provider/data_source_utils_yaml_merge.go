@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"gopkg.in/yaml.v3"
 )
 
 var _ datasource.DataSource = (*yamlMergeDataSource)(nil)
@@ -93,7 +92,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 		DeduplicateListItems(merged)
 	}
 
-	output, err := yaml.Marshal(merged)
+	output, err := YamlMarshal(merged)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error converting result to YAML",

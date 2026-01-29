@@ -409,6 +409,23 @@ func TestMergeListItem(t *testing.T) {
 				},
 			},
 		},
+		// append map to list containing primitives (mixed types)
+		{
+			dst: []any{
+				"abc",
+				"def",
+			},
+			src: map[string]any{
+				"name": "ghi",
+			},
+			result: []any{
+				"abc",
+				"def",
+				map[string]any{
+					"name": "ghi",
+				},
+			},
+		},
 	}
 
 	for _, c := range cases {
@@ -484,6 +501,28 @@ func TestDeduplicateListItems(t *testing.T) {
 				"list": []any{
 					"abc",
 					"abc",
+				},
+			},
+		},
+		// handle mixed type list items (strings and maps)
+		{
+			data: map[string]any{
+				"list": []any{
+					"abc",
+					map[string]any{
+						"name": "def",
+					},
+					map[string]any{
+						"name": "def",
+					},
+				},
+			},
+			result: map[string]any{
+				"list": []any{
+					"abc",
+					map[string]any{
+						"name": "def",
+					},
 				},
 			},
 		},
