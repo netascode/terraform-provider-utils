@@ -4,6 +4,7 @@
 - Add `merge` function
 - Add `normalize_mask` function
 - Handle merging of scalars and maps in the same list gracefully
+- Fix `yaml_merge` losing string type for values that look like scientific notation, numbers, or booleans
 
 ## 1.0.2
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"gopkg.in/yaml.v3"
 )
 
 var _ function.Function = YamlMergeFunction{}
@@ -74,7 +73,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 		MergeMaps(data, merged, true)
 	}
 
-	output, err := yaml.Marshal(merged)
+	output, err := YamlMarshal(merged)
 	if err != nil {
 		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error converting results to YAML: "+err.Error()))
 		return
