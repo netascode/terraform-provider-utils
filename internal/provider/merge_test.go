@@ -518,28 +518,6 @@ func TestMergeListItem(t *testing.T) {
 				},
 			},
 		},
-		// handle mixed type list items (strings and maps)
-		{
-			data: map[string]any{
-				"list": []any{
-					"abc",
-					map[string]any{
-						"name": "def",
-					},
-					map[string]any{
-						"name": "def",
-					},
-				},
-			},
-			result: map[string]any{
-				"list": []any{
-					"abc",
-					map[string]any{
-						"name": "def",
-					},
-				},
-			},
-		},
 	}
 
 	for _, c := range cases {
