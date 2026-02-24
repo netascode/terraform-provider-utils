@@ -149,7 +149,7 @@ func TestParseBgpRdRtFunction_InvalidLeftSide(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:      testAccFunctionUtilsParseBgpRdRt_invalidLeftSide(),
-				ExpectError: regexp.MustCompile(`(?s)invalid AS number.*abc.*must be a valid integer`),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*abc[\s\S]*must be a non-negative integer`),
 			},
 		},
 	})
@@ -164,7 +164,7 @@ func TestParseBgpRdRtFunction_InvalidRightSide(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:      testAccFunctionUtilsParseBgpRdRt_invalidRightSide(),
-				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number.*abc.*must be a valid integer`),
+				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number[\s\S]*abc[\s\S]*must be a non-negative integer`),
 			},
 		},
 	})
@@ -180,6 +180,134 @@ func TestParseBgpRdRtFunction_InvalidIPv4(t *testing.T) {
 			{
 				Config:      testAccFunctionUtilsParseBgpRdRt_invalidIPv4(),
 				ExpectError: regexp.MustCompile(`(?s)invalid IPv4[\s\S]*address.*999\.999\.999\.999.*must be a valid IPv4`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_InvalidZeroAS(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccFunctionUtilsParseBgpRdRt_invalidZeroAS(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*0[\s\S]*two-byte AS number must be 1-65535`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_InvalidNegativeAS(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccFunctionUtilsParseBgpRdRt_invalidNegativeAS(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*must be a non-negative integer`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_InvalidNegativeAssigned(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccFunctionUtilsParseBgpRdRt_invalidNegativeAssigned(),
+				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number[\s\S]*must be a non-negative integer`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_InvalidFourByteAssignedTooLarge(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccFunctionUtilsParseBgpRdRt_invalidFourByteAssignedTooLarge(),
+				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number 70000[\s\S]*four-byte AS format assigned number must be[\s\S]*0-65535`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_InvalidIPv4AssignedTooLarge(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccFunctionUtilsParseBgpRdRt_invalidIPv4AssignedTooLarge(),
+				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number 70000[\s\S]*IPv4 address format assigned number must be[\s\S]*0-65535`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_InvalidASTooLarge(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccFunctionUtilsParseBgpRdRt_invalidASTooLarge(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*4294967296[\s\S]*four-byte AS number must be 65536-4294967295`),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_MaxTwoByteAssigned(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsParseBgpRdRt_maxTwoByteAssigned(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("format", "two_byte_as"),
+					resource.TestCheckOutput("as_number", "1"),
+					resource.TestCheckOutput("assigned_number", "4294967295"),
+				),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_MaxFourByteAS(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsParseBgpRdRt_maxFourByteAS(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("format", "four_byte_as"),
+					resource.TestCheckOutput("as_number", "4294967295"),
+					resource.TestCheckOutput("assigned_number", "65535"),
+				),
 			},
 		},
 	})
@@ -347,6 +475,94 @@ func testAccFunctionUtilsParseBgpRdRt_invalidIPv4() string {
 	return `
 output "invalid" {
   value = provider::utils::parse_bgp_rd_rt("999.999.999.999:100")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_invalidZeroAS() string {
+	return `
+output "invalid" {
+  value = provider::utils::parse_bgp_rd_rt("0:100")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_invalidNegativeAS() string {
+	return `
+output "invalid" {
+  value = provider::utils::parse_bgp_rd_rt("-1:100")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_invalidNegativeAssigned() string {
+	return `
+output "invalid" {
+  value = provider::utils::parse_bgp_rd_rt("65000:-1")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_invalidFourByteAssignedTooLarge() string {
+	return `
+output "invalid" {
+  value = provider::utils::parse_bgp_rd_rt("100000:70000")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_invalidIPv4AssignedTooLarge() string {
+	return `
+output "invalid" {
+  value = provider::utils::parse_bgp_rd_rt("10.0.0.1:70000")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_invalidASTooLarge() string {
+	return `
+output "invalid" {
+  value = provider::utils::parse_bgp_rd_rt("4294967296:100")
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_maxTwoByteAssigned() string {
+	return `
+locals {
+  result = provider::utils::parse_bgp_rd_rt("1:4294967295")
+}
+
+output "format" {
+  value = local.result.format
+}
+
+output "as_number" {
+  value = local.result.as_number
+}
+
+output "assigned_number" {
+  value = local.result.assigned_number
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_maxFourByteAS() string {
+	return `
+locals {
+  result = provider::utils::parse_bgp_rd_rt("4294967295:65535")
+}
+
+output "format" {
+  value = local.result.format
+}
+
+output "as_number" {
+  value = local.result.as_number
+}
+
+output "assigned_number" {
+  value = local.result.assigned_number
 }
 `
 }
