@@ -14,8 +14,9 @@ import (
 
 // Format constants for BGP RD/RT type detection (RFC 4364 / RFC 4360)
 const (
-	FormatBgpTwoByteAS  = "two_byte_as"  // Type 0: 2-byte AS number (1-65535)
-	FormatBgpFourByteAS = "four_byte_as" // Type 2: 4-byte AS number (65536-4294967295)
+	FormatBgpAuto        = "auto"         // BGP RD auto-assignment
+	FormatBgpTwoByteAS   = "two_byte_as"  // Type 0: 2-byte AS number (1-65535)
+	FormatBgpFourByteAS  = "four_byte_as" // Type 2: 4-byte AS number (65536-4294967295)
 	FormatBgpIPv4Address = "ipv4_address" // Type 1: IPv4 address
 )
 
@@ -36,6 +37,10 @@ var _ function.Function = ParseBgpRdRtFunction{}
 // Enforces RFC range constraints: two-byte AS (1-65535, assigned 0-4294967295),
 // four-byte AS (65536-4294967295, assigned 0-65535), IPv4 (assigned 0-65535).
 func parseBgpRdRt(value string) (format string, asNumber int64, assignedNumber int64, ipv4Address string, err error) {
+	if strings.EqualFold(strings.TrimSpace(value), "auto") {
+		return FormatBgpAuto, 0, 0, "", nil
+	}
+
 	parts := strings.SplitN(value, ":", 2)
 	if len(parts) != 2 {
 		return "", 0, 0, "", fmt.Errorf("invalid BGP RD/RT format '%s': expected 'X:Y' colon notation", value)
@@ -97,11 +102,19 @@ func (r ParseBgpRdRtFunction) Metadata(_ context.Context, req function.MetadataR
 func (r ParseBgpRdRtFunction) Definition(_ context.Context, _ function.DefinitionRequest, resp *function.DefinitionResponse) {
 	resp.Definition = function.Definition{
 		Summary:             "Parse a BGP Route Distinguisher or Route Target from colon notation",
-		MarkdownDescription: "Takes a BGP RD/RT in standard colon notation (e.g., '65000:1001', '192.168.100.1:1002', '4200000001:1003') and returns an object with the detected format type and parsed components. Supports three format types per RFC 4364/4360: 'two_byte_as' (AS <= 65535), 'four_byte_as' (AS > 65535), and 'ipv4_address' (IPv4:value).",
+		MarkdownDescription: "Takes a BGP RD/RT in standard colon notation (e.g., '65000:1001', '192.168.100.1:1002', '4200000001:1003') or the keyword 'auto' and returns an object with the detected format type and parsed components. Supports four format types: 'auto' (BGP RD auto-assignment), 'two_byte_as' (AS <= 65535), 'four_byte_as' (AS > 65535), and 'ipv4_address' (IPv4:value).\n\n" +
+			"## Return Object\n\n" +
+			"The function returns an object with the following attributes:\n\n" +
+			"| Attribute | Type | Description |\n" +
+			"|-----------|------|-------------|\n" +
+			"| `format` | String | Detected format: `\"auto\"`, `\"two_byte_as\"`, `\"four_byte_as\"`, or `\"ipv4_address\"` |\n" +
+			"| `as_number` | Number | Administrator subfield as AS number (populated for `two_byte_as` and `four_byte_as`; `0` for `ipv4_address` and `auto`) |\n" +
+			"| `assigned_number` | Number | Assigned Number subfield (always populated; `0` for `auto`) |\n" +
+			"| `ipv4_address` | String | Administrator subfield as IPv4 address (populated for `ipv4_address`; `\"\"` for AS formats and `auto`) |",
 		Parameters: []function.Parameter{
 			function.StringParameter{
 				Name:                "value",
-				MarkdownDescription: "BGP RD/RT in colon notation (e.g., '65000:1001', '192.168.100.1:1002', '4200000001:1003').",
+				MarkdownDescription: "BGP RD/RT in colon notation (e.g., '65000:1001', '192.168.100.1:1002', '4200000001:1003') or the keyword 'auto'.",
 			},
 		},
 		Return: function.ObjectReturn{

@@ -1,3 +1,9 @@
+# Parse an auto RD (BGP RD auto-assignment)
+output "rd_auto" {
+  value = provider::utils::parse_bgp_rd_rt("auto")
+  # Output: { format = "auto", as_number = 0, assigned_number = 0, ipv4_address = "" }
+}
+
 # Parse a Two-byte AS Route Target (AS <= 65535)
 output "rt_two_byte" {
   value = provider::utils::parse_bgp_rd_rt("65000:1001")
@@ -27,6 +33,7 @@ locals {
 }
 
 resource "example_bgp_rd" "bgp_rd" {
+  bgp_rd_auto                = try(local.bgp_rd.format == "auto" ? true : null, null)
   bgp_rd_two_byte_as_number  = try(local.bgp_rd.format == "two_byte_as" ? local.bgp_rd.as_number : null, null)
   bgp_rd_two_byte_as_index   = try(local.bgp_rd.format == "two_byte_as" ? local.bgp_rd.assigned_number : null, null)
   bgp_rd_four_byte_as_number = try(local.bgp_rd.format == "four_byte_as" ? local.bgp_rd.as_number : null, null)

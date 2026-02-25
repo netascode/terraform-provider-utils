@@ -8,6 +8,66 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
 
+func TestParseBgpRdRtFunction_Auto(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsParseBgpRdRt_auto(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("format", "auto"),
+					resource.TestCheckOutput("as_number", "0"),
+					resource.TestCheckOutput("assigned_number", "0"),
+					resource.TestCheckOutput("ipv4_address", ""),
+				),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_AutoUpperCase(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsParseBgpRdRt_autoUpperCase(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("format", "auto"),
+					resource.TestCheckOutput("as_number", "0"),
+					resource.TestCheckOutput("assigned_number", "0"),
+					resource.TestCheckOutput("ipv4_address", ""),
+				),
+			},
+		},
+	})
+}
+
+func TestParseBgpRdRtFunction_AutoMixedCase(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsParseBgpRdRt_autoMixedCase(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("format", "auto"),
+					resource.TestCheckOutput("as_number", "0"),
+					resource.TestCheckOutput("assigned_number", "0"),
+					resource.TestCheckOutput("ipv4_address", ""),
+				),
+			},
+		},
+	})
+}
+
 func TestParseBgpRdRtFunction_TwoByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
@@ -314,6 +374,78 @@ func TestParseBgpRdRtFunction_MaxFourByteAS(t *testing.T) {
 }
 
 // Test configuration functions
+
+func testAccFunctionUtilsParseBgpRdRt_auto() string {
+	return `
+locals {
+  result = provider::utils::parse_bgp_rd_rt("auto")
+}
+
+output "format" {
+  value = local.result.format
+}
+
+output "as_number" {
+  value = local.result.as_number
+}
+
+output "assigned_number" {
+  value = local.result.assigned_number
+}
+
+output "ipv4_address" {
+  value = local.result.ipv4_address
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_autoUpperCase() string {
+	return `
+locals {
+  result = provider::utils::parse_bgp_rd_rt("AUTO")
+}
+
+output "format" {
+  value = local.result.format
+}
+
+output "as_number" {
+  value = local.result.as_number
+}
+
+output "assigned_number" {
+  value = local.result.assigned_number
+}
+
+output "ipv4_address" {
+  value = local.result.ipv4_address
+}
+`
+}
+
+func testAccFunctionUtilsParseBgpRdRt_autoMixedCase() string {
+	return `
+locals {
+  result = provider::utils::parse_bgp_rd_rt("Auto")
+}
+
+output "format" {
+  value = local.result.format
+}
+
+output "as_number" {
+  value = local.result.as_number
+}
+
+output "assigned_number" {
+  value = local.result.assigned_number
+}
+
+output "ipv4_address" {
+  value = local.result.ipv4_address
+}
+`
+}
 
 func testAccFunctionUtilsParseBgpRdRt_twoByteAS() string {
 	return `
