@@ -1,183 +1,294 @@
 package provider
 
 import (
-	"reflect"
+	"sort"
 )
 
-func MergeMaps(src, dst map[string]any) map[string]any {
-	return MergeMapsWithDepth(src, dst, 0)
+func MergeMaps(src, dst map[string]any, deduplicate bool) map[string]any {
+	for key, sValue := range src {
+		if sValue == nil {
+			// nil source values delete nil destination keys (matching reflect.SetMapIndex behavior)
+			if dValue, exists := dst[key]; exists && dValue == nil {
+				delete(dst, key)
+			}
+			continue
+		}
+		dValue, exists := dst[key]
+		if !exists || dValue == nil {
+			dst[key] = sValue
+		} else {
+			switch sv := sValue.(type) {
+			case map[string]any:
+				if dv, ok := dValue.(map[string]any); ok {
+					dst[key] = MergeMaps(sv, dv, deduplicate)
+				}
+			case []any:
+				if dv, ok := dValue.([]any); ok {
+					if deduplicate {
+						if len(sv) == 0 || len(dv) == 0 {
+							dst[key] = append(dv, sv...)
+						} else if hasDuplicatesInList(sv) || hasDuplicatesInList(dv) {
+							dst[key] = append(dv, sv...)
+						} else {
+							merged := dv
+							mergeListItemsIndexed(sv, &merged, deduplicate)
+							dst[key] = merged
+						}
+					} else {
+						dst[key] = append(dv, sv...)
+					}
+				}
+			default:
+				if s, ok := sValue.(string); ok && s == "" {
+					continue
+				}
+				dst[key] = sValue
+			}
+		}
+	}
+	return dst
 }
 
-// MergeMapsWithDepth merges maps with recursion depth tracking for security
-func MergeMapsWithDepth(src, dst map[string]any, depth int) map[string]any {
-	// Security control: prevent stack overflow from deep recursion
-	if depth > 100 {
-		panic("maximum recursion depth exceeded (100 levels) during map merge")
-	}
+// itemsWouldMerge checks if two map items would merge based on primitive field matching
+func itemsWouldMerge(item1, item2 map[string]any) bool {
+	comparison := false
 
-	srcValue := reflect.ValueOf(src)
-	dstValue := reflect.ValueOf(dst)
-
-	// iterate over source map keys and values
-	iter := srcValue.MapRange()
-	for iter.Next() {
-		sKey := iter.Key()
-		if sKey.Kind() == reflect.Interface {
-			sKey = sKey.Elem()
+	// Check item1 primitive fields against item2
+	for k, v1 := range item1 {
+		if !isPrimitive(v1) {
+			continue
 		}
-		sValue := iter.Value()
-		if sValue.Kind() == reflect.Interface {
-			sValue = sValue.Elem()
+		v2, ok := item2[k]
+		if !ok {
+			continue
 		}
-
-		dValue := dstValue.MapIndex(sKey)
-		if !dValue.IsValid() || dValue.IsZero() {
-			dstValue.SetMapIndex(sKey, sValue)
-		} else if sValue.Kind() == reflect.Map {
-			dValue = reflect.ValueOf(dValue.Interface())
-			if dValue.Kind() == reflect.Map {
-				dstValue.SetMapIndex(sKey, reflect.ValueOf(MergeMapsWithDepth(sValue.Interface().(map[string]any), dValue.Interface().(map[string]any), depth+1)))
-			}
-		} else if sValue.Kind() == reflect.Slice {
-			dValue = reflect.ValueOf(dValue.Interface())
-			if dValue.Kind() == reflect.Slice {
-				dstValue.SetMapIndex(sKey, reflect.AppendSlice(dValue, sValue))
-			}
-		} else if sValue.Kind() != reflect.Invalid && !(sValue.Kind() == reflect.String && sValue.IsZero()) {
-			// else we have primitive type -> add/replace dst value
-			dstValue.SetMapIndex(sKey, sValue)
+		if !isPrimitive(v2) {
+			continue
+		}
+		comparison = true
+		if v1 != v2 {
+			return false
 		}
 	}
-	return dstValue.Interface().(map[string]any)
+
+	// Check item2 primitive fields against item1
+	for k, v2 := range item2 {
+		if !isPrimitive(v2) {
+			continue
+		}
+		v1, ok := item1[k]
+		if !ok {
+			continue
+		}
+		if !isPrimitive(v1) {
+			continue
+		}
+		comparison = true
+		if v1 != v2 {
+			return false
+		}
+	}
+
+	return comparison
 }
 
-func MergeListItem(src any, dst *[]any) {
-	srcValue := reflect.ValueOf(src)
+// kvPair represents a key-value pair used as an inverted index key
+type kvPair struct {
+	key   string
+	value any
+}
 
-	if srcValue.Kind() == reflect.Interface {
-		srcValue = srcValue.Elem()
+// isPrimitive returns true if the value is not a map or slice
+func isPrimitive(v any) bool {
+	switch v.(type) {
+	case map[string]any, []any:
+		return false
+	default:
+		return true
 	}
-	if srcValue.Kind() == reflect.Map {
-		for i, item := range *dst {
-			// Check if the destination item is also a map before trying to compare
-			itemValue := reflect.ValueOf(item)
-			if itemValue.Kind() == reflect.Interface {
-				itemValue = itemValue.Elem()
+}
+
+// extractPrimitives returns only primitive (non-map, non-slice) key-value pairs from a map
+func extractPrimitives(m map[string]any) map[string]any {
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		if isPrimitive(v) {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// buildInvertedIndex builds a mapping from (key, value) pairs to item indices
+func buildInvertedIndex(primsList []map[string]any) map[kvPair][]int {
+	index := make(map[kvPair][]int)
+	for i, prims := range primsList {
+		for k, v := range prims {
+			pair := kvPair{key: k, value: v}
+			index[pair] = append(index[pair], i)
+		}
+	}
+	return index
+}
+
+// hasDuplicatesInList checks if a list contains duplicate dict items using an inverted index
+func hasDuplicatesInList(items []any) bool {
+	// Only check dict items for duplicates, precompute primitives
+	var dictItems []map[string]any
+	var primsList []map[string]any
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			dictItems = append(dictItems, m)
+			primsList = append(primsList, extractPrimitives(m))
+		}
+	}
+
+	if len(dictItems) < 2 {
+		return false
+	}
+
+	// Build inverted index
+	index := buildInvertedIndex(primsList)
+
+	// Check candidate pairs from buckets with 2+ entries
+	type intPair [2]int
+	checked := make(map[intPair]bool)
+	for _, bucket := range index {
+		if len(bucket) < 2 {
+			continue
+		}
+		for bi := 0; bi < len(bucket); bi++ {
+			for bj := bi + 1; bj < len(bucket); bj++ {
+				pair := intPair{bucket[bi], bucket[bj]}
+				if checked[pair] {
+					continue
+				}
+				checked[pair] = true
+				i, j := pair[0], pair[1]
+				// Intersect primitive key sets, verify all shared keys match
+				match := false
+				allMatch := true
+				for k, v1 := range primsList[i] {
+					if v2, ok := primsList[j][k]; ok {
+						match = true
+						if v1 != v2 {
+							allMatch = false
+							break
+						}
+					}
+				}
+				if match && allMatch {
+					return true
+				}
 			}
-			// Skip this item if it's not a map - can't merge map with non-map
-			if itemValue.Kind() != reflect.Map {
+		}
+	}
+
+	return false
+}
+
+// mergeListItemsIndexed merges source items into destination using an inverted index
+func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool) {
+	// Build inverted index over destination's dict items
+	destPrimitives := make([]map[string]any, len(*dst))
+	for i, item := range *dst {
+		if m, ok := item.(map[string]any); ok {
+			destPrimitives[i] = extractPrimitives(m)
+		}
+	}
+
+	index := make(map[kvPair][]int)
+	for i, prims := range destPrimitives {
+		if prims == nil {
+			continue
+		}
+		for k, v := range prims {
+			pair := kvPair{key: k, value: v}
+			index[pair] = append(index[pair], i)
+		}
+	}
+
+	for _, srcItem := range sourceItems {
+		srcMap, ok := srcItem.(map[string]any)
+		if !ok {
+			*dst = append(*dst, srcItem)
+			continue
+		}
+
+		srcPrims := extractPrimitives(srcMap)
+		if len(srcPrims) == 0 {
+			*dst = append(*dst, srcItem)
+			continue
+		}
+
+		// Collect candidate dest indices
+		candidateSet := make(map[int]bool)
+		for k, v := range srcPrims {
+			pair := kvPair{key: k, value: v}
+			if indices, exists := index[pair]; exists {
+				for _, idx := range indices {
+					candidateSet[idx] = true
+				}
+			}
+		}
+
+		// Check candidates in destination order (first-match semantics)
+		candidates := make([]int, 0, len(candidateSet))
+		for idx := range candidateSet {
+			candidates = append(candidates, idx)
+		}
+		sort.Ints(candidates)
+
+		matched := false
+		for _, ci := range candidates {
+			dp := destPrimitives[ci]
+			if dp == nil {
 				continue
 			}
-
-			match := true
-			comparison := false
-			unique_source := false
-			unique_dest := false
-			// iterate over all source map keys and values
-			iter := srcValue.MapRange()
-			for iter.Next() {
-				sKey := iter.Key()
-				if sKey.Kind() == reflect.Interface {
-					sKey = sKey.Elem()
-				}
-				sValue := iter.Value()
-				if sValue.Kind() == reflect.Interface {
-					sValue = sValue.Elem()
-				}
-
-				x := itemValue.MapIndex(sKey)
-				if x.Kind() == reflect.Interface {
-					x = x.Elem()
-				}
-				if sValue.Kind() == reflect.Map || sValue.Kind() == reflect.Slice {
-					continue
-				}
-				if !x.IsValid() || !sValue.IsValid() {
-					unique_source = true
-					continue
-				}
-				comparison = true
-				if sValue.Interface() != x.Interface() {
-					match = false
+			// Intersect primitive key sets, verify all shared keys match
+			hasShared := false
+			allMatch := true
+			for k, sv := range srcPrims {
+				if dv, ok := dp[k]; ok {
+					hasShared = true
+					if sv != dv {
+						allMatch = false
+						break
+					}
 				}
 			}
-			// iterate over all dst map keys and values
-			iter = itemValue.MapRange()
-			for iter.Next() {
-				dKey := iter.Key()
-				if dKey.Kind() == reflect.Interface {
-					dKey = dKey.Elem()
-				}
-				dValue := iter.Value()
-				if dValue.Kind() == reflect.Interface {
-					dValue = dValue.Elem()
-				}
-
-				x := srcValue.MapIndex(dKey)
-				if x.Kind() == reflect.Interface {
-					x = x.Elem()
-				}
-				if dValue.Kind() == reflect.Map || dValue.Kind() == reflect.Slice {
-					continue
-				}
-				if !x.IsValid() || !dValue.IsValid() {
-					unique_dest = true
-					continue
-				}
-				comparison = true
-				if dValue.Interface() != x.Interface() {
-					match = false
-				}
-			}
-			// Check if all primitive values have matched AND at least one comparison was done
-			if match && comparison && !(unique_source && unique_dest) {
-				MergeMapsWithDepth(srcValue.Interface().(map[string]any), (*dst)[i].(map[string]any), 0)
-				return
+			if hasShared && allMatch {
+				MergeMaps(srcMap, (*dst)[ci].(map[string]any), deduplicate)
+				// Update primitives cache after merge
+				destPrimitives[ci] = extractPrimitives((*dst)[ci].(map[string]any))
+				matched = true
+				break
 			}
 		}
 
+		if !matched {
+			// Append and update index so later source items can match
+			newIdx := len(*dst)
+			*dst = append(*dst, srcItem)
+			destPrimitives = append(destPrimitives, srcPrims)
+			for k, v := range srcPrims {
+				pair := kvPair{key: k, value: v}
+				index[pair] = append(index[pair], newIdx)
+			}
+		}
 	}
-	t := append(*dst, src)
-	*dst = t
 }
 
-func DeduplicateListItems(data map[string]any) map[string]any {
-	return DeduplicateListItemsWithDepth(data, 0)
-}
-
-// DeduplicateListItemsWithDepth deduplicates list items with recursion depth tracking
-func DeduplicateListItemsWithDepth(data map[string]any, depth int) map[string]any {
-	// Security control: prevent stack overflow from deep recursion
-	if depth > 100 {
-		panic("maximum recursion depth exceeded (100 levels) during list deduplication")
-	}
-
-	dataValue := reflect.ValueOf(data)
-	iter := dataValue.MapRange()
-	for iter.Next() {
-		key := iter.Key()
-		if key.Kind() == reflect.Interface {
-			key = key.Elem()
-		}
-		value := iter.Value()
-		if value.Kind() == reflect.Interface {
-			value = value.Elem()
-		}
-
-		if value.Kind() == reflect.Map {
-			DeduplicateListItemsWithDepth(value.Interface().(map[string]any), depth+1)
-		} else if value.Kind() == reflect.Slice {
-			deduplicatedList := make([]any, 0, value.Len())
-			for i := range value.Len() {
-				MergeListItem(value.Index(i).Interface(), &deduplicatedList)
-			}
-			for _, item := range deduplicatedList {
-				if reflect.ValueOf(item).Kind() == reflect.Map {
-					DeduplicateListItemsWithDepth(item.(map[string]any), depth+1)
+func MergeListItem(src any, dst *[]any, deduplicate bool) {
+	if srcMap, ok := src.(map[string]any); ok {
+		for i, item := range *dst {
+			if dstMap, ok := item.(map[string]any); ok {
+				if itemsWouldMerge(srcMap, dstMap) {
+					MergeMaps(srcMap, (*dst)[i].(map[string]any), deduplicate)
+					return
 				}
 			}
-			dataValue.SetMapIndex(key, reflect.ValueOf(deduplicatedList))
 		}
 	}
-	return dataValue.Interface().(map[string]any)
+	*dst = append(*dst, src)
 }
