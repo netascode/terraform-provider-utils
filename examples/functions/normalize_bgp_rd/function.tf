@@ -1,24 +1,24 @@
 # Parse an auto RD (BGP RD auto-assignment)
 output "rd_auto" {
-  value = provider::utils::parse_bgp_rd_rt("auto")
+  value = provider::utils::normalize_bgp_rd("auto")
   # Output: { format = "auto", as_number = 0, assigned_number = 0, ipv4_address = "" }
 }
 
-# Parse a Two-byte AS Route Target (AS <= 65535)
-output "rt_two_byte" {
-  value = provider::utils::parse_bgp_rd_rt("65000:1001")
+# Parse a Two-byte AS Route Distinguisher (AS <= 65535)
+output "rd_two_byte" {
+  value = provider::utils::normalize_bgp_rd("65000:1001")
   # Output: { format = "two_byte_as", as_number = 65000, assigned_number = 1001, ipv4_address = "" }
 }
 
 # Parse a Four-byte AS Route Distinguisher (AS > 65535)
 output "rd_four_byte" {
-  value = provider::utils::parse_bgp_rd_rt("4200000001:1003")
+  value = provider::utils::normalize_bgp_rd("4200000001:1003")
   # Output: { format = "four_byte_as", as_number = 4200000001, assigned_number = 1003, ipv4_address = "" }
 }
 
-# Parse an IPv4 Address Route Target
+# Parse an IPv4 Address Route Distinguisher
 output "rd_ipv4" {
-  value = provider::utils::parse_bgp_rd_rt("192.168.100.1:1002")
+  value = provider::utils::normalize_bgp_rd("192.168.100.1:1002")
   # Output: { format = "ipv4_address", as_number = 0, assigned_number = 1002, ipv4_address = "192.168.100.1" }
 }
 
@@ -29,7 +29,7 @@ variable "user_rd" {
 }
 
 locals {
-  bgp_rd = try(provider::utils::parse_bgp_rd_rt(var.user_rd), null)
+  bgp_rd = try(provider::utils::normalize_bgp_rd(var.user_rd), null)
 }
 
 resource "example_bgp_rd" "bgp_rd" {

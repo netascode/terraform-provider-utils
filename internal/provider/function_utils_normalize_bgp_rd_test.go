@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
 
-func TestParseBgpRdRtFunction_Auto(t *testing.T) {
+func TestNormalizeBgpRdFunction_Auto(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -16,7 +16,7 @@ func TestParseBgpRdRtFunction_Auto(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_auto(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_auto(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "auto"),
 					resource.TestCheckOutput("as_number", "0"),
@@ -28,7 +28,7 @@ func TestParseBgpRdRtFunction_Auto(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_AutoUpperCase(t *testing.T) {
+func TestNormalizeBgpRdFunction_AutoUpperCase(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -36,7 +36,7 @@ func TestParseBgpRdRtFunction_AutoUpperCase(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_autoUpperCase(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_autoUpperCase(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "auto"),
 					resource.TestCheckOutput("as_number", "0"),
@@ -48,7 +48,7 @@ func TestParseBgpRdRtFunction_AutoUpperCase(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_AutoMixedCase(t *testing.T) {
+func TestNormalizeBgpRdFunction_AutoMixedCase(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -56,7 +56,7 @@ func TestParseBgpRdRtFunction_AutoMixedCase(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_autoMixedCase(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_autoMixedCase(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "auto"),
 					resource.TestCheckOutput("as_number", "0"),
@@ -68,7 +68,7 @@ func TestParseBgpRdRtFunction_AutoMixedCase(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_TwoByteAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_TwoByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -76,7 +76,7 @@ func TestParseBgpRdRtFunction_TwoByteAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_twoByteAS(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_twoByteAS(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "two_byte_as"),
 					resource.TestCheckOutput("as_number", "65000"),
@@ -88,7 +88,7 @@ func TestParseBgpRdRtFunction_TwoByteAS(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_FourByteAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_FourByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -96,7 +96,7 @@ func TestParseBgpRdRtFunction_FourByteAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_fourByteAS(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_fourByteAS(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "four_byte_as"),
 					resource.TestCheckOutput("as_number", "4200000001"),
@@ -108,7 +108,7 @@ func TestParseBgpRdRtFunction_FourByteAS(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_IPv4Address(t *testing.T) {
+func TestNormalizeBgpRdFunction_IPv4Address(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -116,7 +116,7 @@ func TestParseBgpRdRtFunction_IPv4Address(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_ipv4Address(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_ipv4Address(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "ipv4_address"),
 					resource.TestCheckOutput("as_number", "0"),
@@ -128,7 +128,7 @@ func TestParseBgpRdRtFunction_IPv4Address(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_BoundaryTwoByteAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_BoundaryTwoByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -136,7 +136,7 @@ func TestParseBgpRdRtFunction_BoundaryTwoByteAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_boundaryTwoByteAS(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_boundaryTwoByteAS(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "two_byte_as"),
 					resource.TestCheckOutput("as_number", "65535"),
@@ -147,7 +147,7 @@ func TestParseBgpRdRtFunction_BoundaryTwoByteAS(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_BoundaryFourByteAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_BoundaryFourByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -155,7 +155,7 @@ func TestParseBgpRdRtFunction_BoundaryFourByteAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_boundaryFourByteAS(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_boundaryFourByteAS(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "four_byte_as"),
 					resource.TestCheckOutput("as_number", "65536"),
@@ -166,7 +166,7 @@ func TestParseBgpRdRtFunction_BoundaryFourByteAS(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_MinTwoByteAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_MinTwoByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -174,7 +174,7 @@ func TestParseBgpRdRtFunction_MinTwoByteAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_minTwoByteAS(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_minTwoByteAS(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "two_byte_as"),
 					resource.TestCheckOutput("as_number", "1"),
@@ -185,7 +185,7 @@ func TestParseBgpRdRtFunction_MinTwoByteAS(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidNoColon(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidNoColon(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -193,14 +193,14 @@ func TestParseBgpRdRtFunction_InvalidNoColon(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidNoColon(),
-				ExpectError: regexp.MustCompile(`(?s)invalid BGP RD/RT[\s\S]*format.*65000.*expected.*colon notation`),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidNoColon(),
+				ExpectError: regexp.MustCompile(`(?s)invalid BGP RD[\s\S]*format.*65000.*expected.*colon notation`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidLeftSide(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidLeftSide(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -208,14 +208,14 @@ func TestParseBgpRdRtFunction_InvalidLeftSide(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidLeftSide(),
-				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*abc[\s\S]*must be a non-negative integer`),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidLeftSide(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS[\s\S]*number[\s\S]*abc[\s\S]*must be a non-negative integer`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidRightSide(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidRightSide(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -223,14 +223,14 @@ func TestParseBgpRdRtFunction_InvalidRightSide(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidRightSide(),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidRightSide(),
 				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number[\s\S]*abc[\s\S]*must be a non-negative integer`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidIPv4(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidIPv4(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -238,14 +238,14 @@ func TestParseBgpRdRtFunction_InvalidIPv4(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidIPv4(),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidIPv4(),
 				ExpectError: regexp.MustCompile(`(?s)invalid IPv4[\s\S]*address.*999\.999\.999\.999.*must be a valid IPv4`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidZeroAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidZeroAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -253,14 +253,14 @@ func TestParseBgpRdRtFunction_InvalidZeroAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidZeroAS(),
-				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*0[\s\S]*two-byte AS number must be 1-65535`),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidZeroAS(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS[\s\S]*number[\s\S]*0[\s\S]*two-byte AS number must be 1-65535`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidNegativeAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidNegativeAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -268,14 +268,14 @@ func TestParseBgpRdRtFunction_InvalidNegativeAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidNegativeAS(),
-				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*must be a non-negative integer`),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidNegativeAS(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS[\s\S]*number[\s\S]*must be a non-negative integer`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidNegativeAssigned(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidNegativeAssigned(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -283,14 +283,14 @@ func TestParseBgpRdRtFunction_InvalidNegativeAssigned(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidNegativeAssigned(),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidNegativeAssigned(),
 				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number[\s\S]*must be a non-negative integer`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidFourByteAssignedTooLarge(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidFourByteAssignedTooLarge(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -298,14 +298,14 @@ func TestParseBgpRdRtFunction_InvalidFourByteAssignedTooLarge(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidFourByteAssignedTooLarge(),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidFourByteAssignedTooLarge(),
 				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number 70000[\s\S]*four-byte AS format assigned number must be[\s\S]*0-65535`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidIPv4AssignedTooLarge(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidIPv4AssignedTooLarge(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -313,14 +313,14 @@ func TestParseBgpRdRtFunction_InvalidIPv4AssignedTooLarge(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidIPv4AssignedTooLarge(),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidIPv4AssignedTooLarge(),
 				ExpectError: regexp.MustCompile(`(?s)invalid assigned[\s\S]*number 70000[\s\S]*IPv4 address format assigned number must be[\s\S]*0-65535`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_InvalidASTooLarge(t *testing.T) {
+func TestNormalizeBgpRdFunction_InvalidASTooLarge(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -328,14 +328,14 @@ func TestParseBgpRdRtFunction_InvalidASTooLarge(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccFunctionUtilsParseBgpRdRt_invalidASTooLarge(),
-				ExpectError: regexp.MustCompile(`(?s)invalid AS number[\s\S]*4294967296[\s\S]*four-byte AS number must be 65536-4294967295`),
+				Config:      testAccFunctionUtilsNormalizeBgpRd_invalidASTooLarge(),
+				ExpectError: regexp.MustCompile(`(?s)invalid AS[\s\S]*number[\s\S]*4294967296[\s\S]*four-byte AS number must be[\s\S]*65536-4294967295`),
 			},
 		},
 	})
 }
 
-func TestParseBgpRdRtFunction_MaxTwoByteAssigned(t *testing.T) {
+func TestNormalizeBgpRdFunction_MaxTwoByteAssigned(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -343,7 +343,7 @@ func TestParseBgpRdRtFunction_MaxTwoByteAssigned(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_maxTwoByteAssigned(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_maxTwoByteAssigned(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "two_byte_as"),
 					resource.TestCheckOutput("as_number", "1"),
@@ -354,7 +354,7 @@ func TestParseBgpRdRtFunction_MaxTwoByteAssigned(t *testing.T) {
 	})
 }
 
-func TestParseBgpRdRtFunction_MaxFourByteAS(t *testing.T) {
+func TestNormalizeBgpRdFunction_MaxFourByteAS(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
 			tfversion.SkipBelow(tfversion.Version1_8_0),
@@ -362,7 +362,7 @@ func TestParseBgpRdRtFunction_MaxFourByteAS(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFunctionUtilsParseBgpRdRt_maxFourByteAS(),
+				Config: testAccFunctionUtilsNormalizeBgpRd_maxFourByteAS(),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("format", "four_byte_as"),
 					resource.TestCheckOutput("as_number", "4294967295"),
@@ -375,10 +375,10 @@ func TestParseBgpRdRtFunction_MaxFourByteAS(t *testing.T) {
 
 // Test configuration functions
 
-func testAccFunctionUtilsParseBgpRdRt_auto() string {
+func testAccFunctionUtilsNormalizeBgpRd_auto() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("auto")
+  result = provider::utils::normalize_bgp_rd("auto")
 }
 
 output "format" {
@@ -399,10 +399,10 @@ output "ipv4_address" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_autoUpperCase() string {
+func testAccFunctionUtilsNormalizeBgpRd_autoUpperCase() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("AUTO")
+  result = provider::utils::normalize_bgp_rd("AUTO")
 }
 
 output "format" {
@@ -423,10 +423,10 @@ output "ipv4_address" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_autoMixedCase() string {
+func testAccFunctionUtilsNormalizeBgpRd_autoMixedCase() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("Auto")
+  result = provider::utils::normalize_bgp_rd("Auto")
 }
 
 output "format" {
@@ -447,10 +447,10 @@ output "ipv4_address" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_twoByteAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_twoByteAS() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("65000:1001")
+  result = provider::utils::normalize_bgp_rd("65000:1001")
 }
 
 output "format" {
@@ -471,10 +471,10 @@ output "ipv4_address" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_fourByteAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_fourByteAS() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("4200000001:1003")
+  result = provider::utils::normalize_bgp_rd("4200000001:1003")
 }
 
 output "format" {
@@ -495,10 +495,10 @@ output "ipv4_address" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_ipv4Address() string {
+func testAccFunctionUtilsNormalizeBgpRd_ipv4Address() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("192.168.100.1:1002")
+  result = provider::utils::normalize_bgp_rd("192.168.100.1:1002")
 }
 
 output "format" {
@@ -519,10 +519,10 @@ output "ipv4_address" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_boundaryTwoByteAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_boundaryTwoByteAS() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("65535:100")
+  result = provider::utils::normalize_bgp_rd("65535:100")
 }
 
 output "format" {
@@ -539,10 +539,10 @@ output "assigned_number" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_boundaryFourByteAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_boundaryFourByteAS() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("65536:100")
+  result = provider::utils::normalize_bgp_rd("65536:100")
 }
 
 output "format" {
@@ -559,10 +559,10 @@ output "assigned_number" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_minTwoByteAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_minTwoByteAS() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("1:0")
+  result = provider::utils::normalize_bgp_rd("1:0")
 }
 
 output "format" {
@@ -579,90 +579,90 @@ output "assigned_number" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidNoColon() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidNoColon() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("65000")
+  value = provider::utils::normalize_bgp_rd("65000")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidLeftSide() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidLeftSide() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("abc:100")
+  value = provider::utils::normalize_bgp_rd("abc:100")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidRightSide() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidRightSide() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("65000:abc")
+  value = provider::utils::normalize_bgp_rd("65000:abc")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidIPv4() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidIPv4() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("999.999.999.999:100")
+  value = provider::utils::normalize_bgp_rd("999.999.999.999:100")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidZeroAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidZeroAS() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("0:100")
+  value = provider::utils::normalize_bgp_rd("0:100")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidNegativeAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidNegativeAS() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("-1:100")
+  value = provider::utils::normalize_bgp_rd("-1:100")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidNegativeAssigned() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidNegativeAssigned() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("65000:-1")
+  value = provider::utils::normalize_bgp_rd("65000:-1")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidFourByteAssignedTooLarge() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidFourByteAssignedTooLarge() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("100000:70000")
+  value = provider::utils::normalize_bgp_rd("100000:70000")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidIPv4AssignedTooLarge() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidIPv4AssignedTooLarge() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("10.0.0.1:70000")
+  value = provider::utils::normalize_bgp_rd("10.0.0.1:70000")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_invalidASTooLarge() string {
+func testAccFunctionUtilsNormalizeBgpRd_invalidASTooLarge() string {
 	return `
 output "invalid" {
-  value = provider::utils::parse_bgp_rd_rt("4294967296:100")
+  value = provider::utils::normalize_bgp_rd("4294967296:100")
 }
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_maxTwoByteAssigned() string {
+func testAccFunctionUtilsNormalizeBgpRd_maxTwoByteAssigned() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("1:4294967295")
+  result = provider::utils::normalize_bgp_rd("1:4294967295")
 }
 
 output "format" {
@@ -679,10 +679,10 @@ output "assigned_number" {
 `
 }
 
-func testAccFunctionUtilsParseBgpRdRt_maxFourByteAS() string {
+func testAccFunctionUtilsNormalizeBgpRd_maxFourByteAS() string {
 	return `
 locals {
-  result = provider::utils::parse_bgp_rd_rt("4294967295:65535")
+  result = provider::utils::normalize_bgp_rd("4294967295:65535")
 }
 
 output "format" {
