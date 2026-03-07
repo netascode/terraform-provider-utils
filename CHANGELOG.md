@@ -1,7 +1,7 @@
 ## Unreleased
 
-- Add `parse_bgp_rd` function
-- Add `parse_bgp_rt` function
+- Add `normalize_bgp_rd` function
+- Add `normalize_bgp_rt` function
 - Add `normalize_vlans` function
 - Add `merge` function
 - Add `normalize_mask` function
