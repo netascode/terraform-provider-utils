@@ -52,6 +52,8 @@ func (p *utilsProvider) Functions(ctx context.Context) []func() function.Functio
 		NewNormalizeMaskFunction,
 		NewNormalizeMacFunction,
 		NewMergeFunction,
+		NewNormalizeBgpRdFunction,
+		NewNormalizeBgpRtFunction,
 	}
 }
 
