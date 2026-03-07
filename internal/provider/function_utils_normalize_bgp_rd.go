@@ -22,13 +22,13 @@ const (
 
 // BGP RD range constants per RFC 4364
 const (
-	MinRdTwoByteAS              = 1
-	MaxRdTwoByteAS              = 65535
-	MinRdFourByteAS             = 65536
-	MaxRdFourByteAS             = 4294967295
-	MaxRdTwoByteAssignedNumber  = 4294967295
-	MaxRdFourByteAssignedNumber = 65535
-	MaxRdIPv4AssignedNumber     = 65535
+	MinRdTwoByteAS              uint64 = 1
+	MaxRdTwoByteAS              uint64 = 65535
+	MinRdFourByteAS             uint64 = 65536
+	MaxRdFourByteAS             uint64 = 4294967295
+	MaxRdTwoByteAssignedNumber  uint64 = 4294967295
+	MaxRdFourByteAssignedNumber uint64 = 65535
+	MaxRdIPv4AssignedNumber     uint64 = 65535
 )
 
 var _ function.Function = NormalizeBgpRdFunction{}

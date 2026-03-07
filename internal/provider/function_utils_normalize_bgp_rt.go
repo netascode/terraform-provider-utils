@@ -22,13 +22,13 @@ const (
 
 // BGP RT range constants per RFC 4360
 const (
-	MinRtTwoByteAS              = 1
-	MaxRtTwoByteAS              = 65535
-	MinRtFourByteAS             = 65536
-	MaxRtFourByteAS             = 4294967295
-	MaxRtTwoByteAssignedNumber  = 4294967295
-	MaxRtFourByteAssignedNumber = 65535
-	MaxRtIPv4AssignedNumber     = 65535
+	MinRtTwoByteAS              uint64 = 1
+	MaxRtTwoByteAS              uint64 = 65535
+	MinRtFourByteAS             uint64 = 65536
+	MaxRtFourByteAS             uint64 = 4294967295
+	MaxRtTwoByteAssignedNumber  uint64 = 4294967295
+	MaxRtFourByteAssignedNumber uint64 = 65535
+	MaxRtIPv4AssignedNumber     uint64 = 65535
 )
 
 var _ function.Function = NormalizeBgpRtFunction{}
