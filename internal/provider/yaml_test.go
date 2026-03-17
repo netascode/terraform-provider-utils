@@ -109,6 +109,14 @@ func TestYamlMarshal_StringQuoting(t *testing.T) {
 			expected: "oct1: \"0o755\"\noct2: \"0O644\"\n",
 		},
 		{
+			name: "timestamp strings",
+			input: map[string]interface{}{
+				"expiration": "2030-01-01T00:00:00.000+00:00",
+				"date_only":  "2030-01-01",
+			},
+			expected: "date_only: \"2030-01-01\"\nexpiration: \"2030-01-01T00:00:00.000+00:00\"\n",
+		},
+		{
 			name: "nested structures with mixed types",
 			input: map[string]interface{}{
 				"config": map[string]interface{}{
@@ -168,6 +176,7 @@ func TestYamlMarshal_TypePreservation(t *testing.T) {
 		"normal_string":    "hello",
 		"empty_string":     "",
 		"string_with_dash": "some-value",
+		"string_timestamp": "2030-01-01T00:00:00.000+00:00",
 	}
 
 	result, err := YamlMarshal(input)
@@ -180,7 +189,7 @@ func TestYamlMarshal_TypePreservation(t *testing.T) {
 		t.Fatalf("Failed to unmarshal result: %v", err)
 	}
 
-	stringChecks := []string{"string_number", "string_bool", "string_decimal", "string_null"}
+	stringChecks := []string{"string_number", "string_bool", "string_decimal", "string_null", "string_timestamp"}
 	for _, key := range stringChecks {
 		if _, ok := unmarshaled[key].(string); !ok {
 			t.Errorf("Expected %s to be string, got %T", key, unmarshaled[key])
@@ -223,6 +232,14 @@ func TestNeedsQuoting(t *testing.T) {
 		{"1.2E3", true},
 		{"+123", true},
 		{"-456", true},
+
+		// Timestamps - should need quoting
+		{"2030-01-01T00:00:00.000+00:00", true},
+		{"2023-01-15T12:34:56Z", true},
+		{"2023-01-15T12:34:56.789Z", true},
+		{"2020-12-31T23:59:59+05:30", true},
+		{"2030-01-01", true},
+		{"2030-01-01 00:00:00", true},
 
 		{"normal", false},
 		{"hello world", false},

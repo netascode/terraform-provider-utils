@@ -147,6 +147,14 @@ func needsQuoting(s string) bool {
 		return true
 	}
 
+	// Check for timestamp/date patterns that YAML v3 interprets as time.Time
+	// ISO 8601 / RFC 3339: 2030-01-01T00:00:00.000+00:00, 2023-01-15T12:34:56Z
+	// Date-only: 2030-01-01
+	timestampPattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})?)?$`)
+	if timestampPattern.MatchString(s) {
+		return true
+	}
+
 	return false
 }
 

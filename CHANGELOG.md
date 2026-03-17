@@ -7,7 +7,7 @@
 - Add `normalize_mask` function
 - Add `normalize_mac` function
 - Handle merging of scalars and maps in the same list gracefully
-- Fix `yaml_merge` losing string type for values that look like scientific notation, numbers, or booleans
+- Fix `yaml_merge` losing string type for values that look like scientific notation, numbers, booleans, or timestamps
 
 ## 1.0.2
 
