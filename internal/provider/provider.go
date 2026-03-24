@@ -55,6 +55,7 @@ func (p *utilsProvider) Functions(ctx context.Context) []func() function.Functio
 		NewNormalizeBgpRdFunction,
 		NewNormalizeBgpRtFunction,
 		NewYamlEncodeFunction,
+		NewYamlDecodeFunction,
 	}
 }
 
