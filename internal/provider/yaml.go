@@ -1,232 +1,397 @@
 package provider
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"regexp"
-	"sort"
-	"strings"
-	"sync"
+	"math"
+	"strconv"
 
-	"gopkg.in/yaml.v3"
+	goyaml "github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 )
 
-var tagResolvers = make(map[string]func(*yaml.Node) (*yaml.Node, error))
-var tagResolversMutex = &sync.Mutex{}
-
-type CustomTagProcessor struct {
-	target interface{}
-}
-
-func (i *CustomTagProcessor) UnmarshalYAML(value *yaml.Node) error {
-	tagResolversMutex.Lock()
-	resolved, err := resolveTags(value)
-	tagResolversMutex.Unlock()
+// yamlDecode parses a YAML string to a native Go value, preserving unknown tags
+// as literal strings (e.g., "!env ABC" → "!env ABC").
+func yamlDecode(input string) (any, error) {
+	file, err := parser.ParseBytes([]byte(input), 0)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("YAML parse error: %w", err)
 	}
-	return resolved.Decode(i.target)
+
+	if len(file.Docs) == 0 {
+		return nil, nil
+	}
+	if len(file.Docs) > 1 {
+		return nil, fmt.Errorf("multiple YAML documents are not supported (expected 1, got %d)", len(file.Docs))
+	}
+
+	doc := file.Docs[0]
+	if doc.Body == nil {
+		return nil, nil
+	}
+
+	decoder := &yamlDecoder{
+		anchors: make(map[string]any),
+	}
+	return decoder.traverseNode(doc.Body)
 }
 
-func resolveTags(node *yaml.Node) (*yaml.Node, error) {
-	for tag, fn := range tagResolvers {
-		if node.Tag == tag {
-			return fn(node)
-		}
-	}
-	if node.Kind == yaml.SequenceNode || node.Kind == yaml.MappingNode {
-		var err error
-		for i := range node.Content {
-			node.Content[i], err = resolveTags(node.Content[i])
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-	return node, nil
+// yamlDecoder holds state during AST traversal (e.g., anchor resolution).
+type yamlDecoder struct {
+	anchors map[string]any
 }
 
-func resolveEnv(node *yaml.Node) (*yaml.Node, error) {
-	if node.Kind != yaml.ScalarNode {
-		return nil, errors.New("!env on a non-scalar node")
+// traverseNode recursively walks the AST and returns a native Go value.
+func (d *yamlDecoder) traverseNode(node ast.Node) (any, error) {
+	if node == nil {
+		return nil, nil
 	}
-	value := os.Getenv(node.Value)
-	if value == "" {
-		return nil, fmt.Errorf("environment variable %v not set", node.Value)
+
+	switch n := node.(type) {
+	case *ast.TagNode:
+		return d.handleTag(n)
+
+	case *ast.NullNode:
+		return nil, nil
+
+	case *ast.StringNode:
+		return n.Value, nil
+
+	case *ast.IntegerNode:
+		return d.handleInteger(n)
+
+	case *ast.FloatNode:
+		return n.Value, nil
+
+	case *ast.BoolNode:
+		return n.Value, nil
+
+	case *ast.LiteralNode:
+		return n.Value.Value, nil
+
+	case *ast.InfinityNode:
+		return n.Value, nil
+
+	case *ast.NanNode:
+		return math.NaN(), nil
+
+	case *ast.MappingNode:
+		return d.handleMapping(n)
+
+	case *ast.MappingValueNode:
+		// A single key-value pair treated as a one-element map
+		return d.handleMappingValue(n)
+
+	case *ast.SequenceNode:
+		return d.handleSequence(n)
+
+	case *ast.AnchorNode:
+		return d.handleAnchor(n)
+
+	case *ast.AliasNode:
+		return d.handleAlias(n)
+
+	default:
+		return nil, fmt.Errorf("unsupported YAML node type: %T", node)
 	}
-	node.Value = value
-	return node, nil
 }
 
-func AddResolvers(tag string, fn func(*yaml.Node) (*yaml.Node, error)) {
-	tagResolversMutex.Lock()
-	tagResolvers[tag] = fn
-	tagResolversMutex.Unlock()
+// handleTag processes tagged YAML values. Standard tags are handled normally;
+// unknown tags on scalar values are preserved as literal strings.
+func (d *yamlDecoder) handleTag(n *ast.TagNode) (any, error) {
+	tag := n.Start.Value
+
+	if isStandardTag(tag) {
+		return d.handleStandardTag(tag, n.Value)
+	}
+
+	// Unknown tag — only allowed on scalar values, preserved as "!tag value"
+	_, isScalar := n.Value.(ast.ScalarNode)
+	if !isScalar {
+		return nil, fmt.Errorf("unsupported tag %q on non-scalar value", tag)
+	}
+
+	value, err := d.traverseNode(n.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	return fmt.Sprintf("%s %v", tag, value), nil
 }
 
-func YamlUnmarshal(in []byte, out interface{}) error {
-	AddResolvers("!env", resolveEnv)
-	err := yaml.Unmarshal(in, &CustomTagProcessor{out})
-	return err
-}
-
-// needsQuoting determines if a string value needs to be quoted to avoid
-// ambiguity when parsed by different YAML implementations (especially Terraform's yamldecode)
-func needsQuoting(s string) bool {
-	// Empty string needs quoting
-	if s == "" {
+// isStandardTag checks whether a YAML tag is a standard YAML 1.2 tag.
+func isStandardTag(tag string) bool {
+	switch tag {
+	case "!!str", "!!int", "!!float", "!!bool", "!!null",
+		"!!map", "!!seq", "!!timestamp", "!!binary",
+		"!!merge":
 		return true
 	}
-
-	// Check for scientific notation pattern: digits followed by e/E and more digits
-	// This pattern matches values that YAML might interpret as scientific notation
-	// Examples: 23211e010211, 1e10, 2.5E10
-	scientificPattern := regexp.MustCompile(`^[+-]?(\d+\.?\d*|\d*\.?\d+)[eE][+-]?\d+$`)
-	if scientificPattern.MatchString(s) {
-		return true
-	}
-
-	// Check for boolean-like values (case insensitive)
-	lower := strings.ToLower(s)
-	booleanValues := map[string]bool{
-		"true":  true,
-		"false": true,
-		"yes":   true,
-		"no":    true,
-		"on":    true,
-		"off":   true,
-		"y":     true,
-		"n":     true,
-	}
-	if booleanValues[lower] {
-		return true
-	}
-
-	// Check for null-like values
-	if lower == "null" || s == "~" {
-		return true
-	}
-
-	// Check for pure numeric strings (integers and floats)
-	// These might be interpreted as numbers by some YAML parsers
-	intPattern := regexp.MustCompile(`^[+-]?\d+$`)
-	floatPattern := regexp.MustCompile(`^[+-]?(\d+\.\d*|\d*\.\d+)$`)
-	if intPattern.MatchString(s) || floatPattern.MatchString(s) {
-		return true
-	}
-
-	// Check for octal (0o755), hex (0xFF), or binary (0b1010) patterns
-	specialNumPattern := regexp.MustCompile(`^0[xXoObB][0-9a-fA-F]+$`)
-	if specialNumPattern.MatchString(s) {
-		return true
-	}
-
-	// Check for infinity and NaN
-	if lower == ".inf" || lower == "-.inf" || lower == "+.inf" || lower == ".nan" {
-		return true
-	}
-
-	// Check for values starting with special characters that might be interpreted differently
-	if len(s) > 0 {
-		first := s[0]
-		if first == '!' || first == '&' || first == '*' || first == '{' ||
-			first == '[' || first == '|' || first == '>' || first == '%' ||
-			first == '@' || first == '`' || first == '\'' || first == '"' {
-			return true
-		}
-	}
-
-	// Check for colons followed by space (could be interpreted as key-value)
-	if strings.Contains(s, ": ") || strings.HasSuffix(s, ":") {
-		return true
-	}
-
-	// Check for # which starts comments
-	if strings.Contains(s, " #") || strings.HasPrefix(s, "#") {
-		return true
-	}
-
-	// Check for timestamp/date patterns that YAML v3 interprets as time.Time
-	// ISO 8601 / RFC 3339: 2030-01-01T00:00:00.000+00:00, 2023-01-15T12:34:56Z
-	// Date-only: 2030-01-01
-	timestampPattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})?)?$`)
-	if timestampPattern.MatchString(s) {
-		return true
-	}
-
 	return false
 }
 
-// convertToYamlNode converts a Go value to a yaml.Node, applying quoting where needed for strings
-func convertToYamlNode(v any) *yaml.Node {
-	switch val := v.(type) {
-	case string:
-		node := &yaml.Node{
-			Kind:  yaml.ScalarNode,
-			Value: val,
+// handleStandardTag processes standard YAML tags.
+func (d *yamlDecoder) handleStandardTag(tag string, value ast.Node) (any, error) {
+	switch tag {
+	case "!!str":
+		v, err := d.traverseNode(value)
+		if err != nil {
+			return nil, err
 		}
-		if needsQuoting(val) {
-			node.Style = yaml.DoubleQuotedStyle
+		if s, ok := v.(string); ok {
+			return s, nil
 		}
-		return node
-	case int:
-		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int"}
-		node.Value = fmt.Sprintf("%d", val)
-		return node
-	case int32:
-		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int"}
-		node.Value = fmt.Sprintf("%d", val)
-		return node
-	case int64:
-		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int"}
-		node.Value = fmt.Sprintf("%d", val)
-		return node
-	case float32:
-		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float"}
-		node.Value = fmt.Sprintf("%v", val)
-		return node
-	case float64:
-		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float"}
-		node.Value = fmt.Sprintf("%v", val)
-		return node
-	case bool:
-		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool"}
-		node.Value = fmt.Sprintf("%v", val)
-		return node
-	case []any:
-		node := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, item := range val {
-			node.Content = append(node.Content, convertToYamlNode(item))
+		return fmt.Sprintf("%v", v), nil
+
+	case "!!int":
+		v, err := d.traverseNode(value)
+		if err != nil {
+			return nil, err
 		}
-		return node
-	case map[string]any:
-		node := &yaml.Node{Kind: yaml.MappingNode}
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
+		switch val := v.(type) {
+		case int:
+			return val, nil
+		case int64:
+			return int(val), nil
+		case uint64:
+			return int(val), nil
+		case string:
+			i, err := strconv.ParseInt(val, 0, 64)
+			if err != nil {
+				return nil, fmt.Errorf("cannot convert %q to integer: %w", val, err)
+			}
+			return int(i), nil
+		default:
+			return nil, fmt.Errorf("cannot convert %T to integer", v)
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
-			node.Content = append(node.Content, keyNode, convertToYamlNode(val[k]))
+
+	case "!!float":
+		v, err := d.traverseNode(value)
+		if err != nil {
+			return nil, err
 		}
-		return node
+		switch val := v.(type) {
+		case float64:
+			return val, nil
+		case int:
+			return float64(val), nil
+		case string:
+			f, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				return nil, fmt.Errorf("cannot convert %q to float: %w", val, err)
+			}
+			return f, nil
+		default:
+			return nil, fmt.Errorf("cannot convert %T to float", v)
+		}
+
+	case "!!bool":
+		v, err := d.traverseNode(value)
+		if err != nil {
+			return nil, err
+		}
+		switch val := v.(type) {
+		case bool:
+			return val, nil
+		case string:
+			b, err := strconv.ParseBool(val)
+			if err != nil {
+				return nil, fmt.Errorf("cannot convert %q to bool: %w", val, err)
+			}
+			return b, nil
+		default:
+			return nil, fmt.Errorf("cannot convert %T to bool", v)
+		}
+
+	case "!!null":
+		return nil, nil
+
+	case "!!map":
+		return d.traverseNode(value)
+
+	case "!!seq":
+		return d.traverseNode(value)
+
+	case "!!timestamp", "!!binary":
+		// Preserve as original string representation
+		if scalar, ok := value.(ast.ScalarNode); ok {
+			if s, ok := scalar.GetValue().(string); ok {
+				return s, nil
+			}
+			return fmt.Sprintf("%v", scalar.GetValue()), nil
+		}
+		return value.String(), nil
+
+	case "!!merge":
+		return d.traverseNode(value)
+
 	default:
-		// Fallback for nil and unknown types
-		node := &yaml.Node{Kind: yaml.ScalarNode}
-		if val == nil {
-			node.Tag = "!!null"
-			node.Value = "null"
-		} else {
-			node.Value = fmt.Sprintf("%v", val)
-		}
-		return node
+		return d.traverseNode(value)
 	}
 }
 
-// YamlMarshal marshals a value to YAML with smart quoting to preserve string types
-func YamlMarshal(v any) ([]byte, error) {
-	node := convertToYamlNode(v)
-	return yaml.Marshal(node)
+// handleInteger converts an IntegerNode value to a Go int.
+func (d *yamlDecoder) handleInteger(n *ast.IntegerNode) (any, error) {
+	switch v := n.Value.(type) {
+	case int64:
+		return int(v), nil
+	case uint64:
+		return int(v), nil
+	default:
+		return nil, fmt.Errorf("unexpected integer type: %T", n.Value)
+	}
+}
+
+// handleMapping converts a MappingNode to a map[string]any.
+func (d *yamlDecoder) handleMapping(n *ast.MappingNode) (any, error) {
+	result := make(map[string]any, len(n.Values))
+	for _, mv := range n.Values {
+		if mv.Key.IsMergeKey() {
+			// Handle merge key (<<) — merge the referenced map into the result
+			mergedVal, err := d.traverseNode(mv.Value)
+			if err != nil {
+				return nil, err
+			}
+			switch merged := mergedVal.(type) {
+			case map[string]any:
+				for k, v := range merged {
+					if _, exists := result[k]; !exists {
+						result[k] = v
+					}
+				}
+			case []any:
+				// Merge key with sequence of maps
+				for _, item := range merged {
+					if m, ok := item.(map[string]any); ok {
+						for k, v := range m {
+							if _, exists := result[k]; !exists {
+								result[k] = v
+							}
+						}
+					}
+				}
+			default:
+				return nil, fmt.Errorf("merge key (<<) value must be a map or list of maps")
+			}
+			continue
+		}
+
+		key, err := d.extractMapKey(mv.Key)
+		if err != nil {
+			return nil, err
+		}
+
+		value, err := d.traverseNode(mv.Value)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = value
+	}
+	return result, nil
+}
+
+// handleMappingValue handles a standalone MappingValueNode (single key-value pair).
+func (d *yamlDecoder) handleMappingValue(n *ast.MappingValueNode) (any, error) {
+	key, err := d.extractMapKey(n.Key)
+	if err != nil {
+		return nil, err
+	}
+	value, err := d.traverseNode(n.Value)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{key: value}, nil
+}
+
+// extractMapKey extracts a string key from a MapKeyNode.
+func (d *yamlDecoder) extractMapKey(keyNode ast.MapKeyNode) (string, error) {
+	switch k := keyNode.(type) {
+	case *ast.MappingKeyNode:
+		val, err := d.traverseNode(k.Value)
+		if err != nil {
+			return "", err
+		}
+		if s, ok := val.(string); ok {
+			return s, nil
+		}
+		return fmt.Sprintf("%v", val), nil
+	default:
+		// For simple scalar keys used directly as MapKeyNode
+		if scalar, ok := keyNode.(ast.ScalarNode); ok {
+			if s, ok := scalar.GetValue().(string); ok {
+				return s, nil
+			}
+			return fmt.Sprintf("%v", scalar.GetValue()), nil
+		}
+		return "", fmt.Errorf("unsupported map key type: %T", keyNode)
+	}
+}
+
+// handleSequence converts a SequenceNode to a []any.
+func (d *yamlDecoder) handleSequence(n *ast.SequenceNode) (any, error) {
+	result := make([]any, 0, len(n.Values))
+	for _, val := range n.Values {
+		value, err := d.traverseNode(val)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
+// handleAnchor processes an anchor node, storing its value for later alias resolution.
+func (d *yamlDecoder) handleAnchor(n *ast.AnchorNode) (any, error) {
+	value, err := d.traverseNode(n.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	anchorName := n.Name.GetToken().Value
+	d.anchors[anchorName] = value
+	return value, nil
+}
+
+// handleAlias resolves an alias reference to a previously defined anchor.
+// Returns a deep copy to prevent shared mutable references between aliases.
+func (d *yamlDecoder) handleAlias(n *ast.AliasNode) (any, error) {
+	aliasName := n.Value.GetToken().Value
+	value, ok := d.anchors[aliasName]
+	if !ok {
+		return nil, fmt.Errorf("alias *%s references undefined anchor", aliasName)
+	}
+	return deepCopy(value), nil
+}
+
+// deepCopy recursively copies a value produced by yamlDecode so that
+// alias references are independent of the anchored original.
+// Only types emitted by the decoder need handling: map[string]any, []any,
+// and immutable primitives (string, int, float64, bool, nil).
+func deepCopy(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		cp := make(map[string]any, len(val))
+		for k, v := range val {
+			cp[k] = deepCopy(v)
+		}
+		return cp
+	case []any:
+		cp := make([]any, len(val))
+		for i, v := range val {
+			cp[i] = deepCopy(v)
+		}
+		return cp
+	default:
+		return v
+	}
+}
+
+// yamlEncode marshals a native Go value to a YAML string using github.com/goccy/go-yaml.
+// It produces block-style YAML with 2-space indentation and indented sequences.
+func yamlEncode(v any) (string, error) {
+	out, err := goyaml.MarshalWithOptions(v, goyaml.IndentSequence(true))
+	if err != nil {
+		return "", fmt.Errorf("error encoding value to YAML: %w", err)
+	}
+	return string(out), nil
 }

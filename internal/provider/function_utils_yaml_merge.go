@@ -61,23 +61,32 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 
 	merged := map[string]any{}
 	for _, input := range input {
-		var data map[string]any
-		b := []byte(input)
-
-		err := YamlUnmarshal(b, &data)
+		decoded, err := yamlDecode(input)
 		if err != nil {
 			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error reading YAML string: "+err.Error()))
+			return
+		}
+
+		resolved, err := resolveYamlTags(decoded)
+		if err != nil {
+			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error resolving YAML tags: "+err.Error()))
+			return
+		}
+
+		data, ok := resolved.(map[string]any)
+		if !ok {
+			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error reading YAML string: expected a YAML mapping at the top level"))
 			return
 		}
 
 		MergeMaps(data, merged, true)
 	}
 
-	output, err := YamlMarshal(merged)
+	output, err := yamlEncode(merged)
 	if err != nil {
 		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error converting results to YAML: "+err.Error()))
 		return
 	}
 
-	resp.Error = function.ConcatFuncErrors(resp.Result.Set(ctx, string(output)))
+	resp.Error = function.ConcatFuncErrors(resp.Result.Set(ctx, output))
 }

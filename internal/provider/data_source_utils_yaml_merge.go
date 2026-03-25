@@ -73,10 +73,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	merged := map[string]any{}
 	for _, input := range config.Input {
-		var data map[string]any
-		b := []byte(input)
-
-		err := YamlUnmarshal(b, &data)
+		decoded, err := yamlDecode(input)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error reading YAML string",
@@ -85,10 +82,28 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 			return
 		}
 
+		resolved, err := resolveYamlTags(decoded)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error resolving YAML tags",
+				fmt.Sprintf("Error resolving YAML tags: %s", err),
+			)
+			return
+		}
+
+		data, ok := resolved.(map[string]any)
+		if !ok {
+			resp.Diagnostics.AddError(
+				"Error reading YAML string",
+				"Expected a YAML mapping at the top level",
+			)
+			return
+		}
+
 		MergeMaps(data, merged, config.MergeListItems.ValueBool())
 	}
 
-	output, err := YamlMarshal(merged)
+	output, err := yamlEncode(merged)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error converting result to YAML",
@@ -97,9 +112,9 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	config.Output = types.StringValue(string(output))
+	config.Output = types.StringValue(output)
 
-	checksum := sha1.Sum(output)
+	checksum := sha1.Sum([]byte(output))
 	config.Id = types.StringValue(hex.EncodeToString(checksum[:]))
 
 	diags = resp.State.Set(ctx, &config)

@@ -184,6 +184,37 @@ func TestYamlDecode_Anchors(t *testing.T) {
 	}
 }
 
+func TestYamlDecode_AliasDeepCopy(t *testing.T) {
+	// Two aliases referencing the same anchored map must produce independent copies.
+	// Mutating one must not affect the other or the original anchor value.
+	input := "base: &base\n  key1: val1\n  key2: val2\ncopy1: *base\ncopy2: *base\n"
+	result, err := yamlDecode(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := result.(map[string]any)
+	base := m["base"].(map[string]any)
+	copy1 := m["copy1"].(map[string]any)
+	copy2 := m["copy2"].(map[string]any)
+
+	// Verify initial values match
+	if copy1["key1"] != "val1" || copy1["key2"] != "val2" {
+		t.Fatalf("copy1 has wrong initial values: %v", copy1)
+	}
+	if copy2["key1"] != "val1" || copy2["key2"] != "val2" {
+		t.Fatalf("copy2 has wrong initial values: %v", copy2)
+	}
+
+	// Mutate copy1 — must not affect copy2 or base
+	copy1["key1"] = "mutated"
+	if copy2["key1"] != "val1" {
+		t.Errorf("mutating copy1 affected copy2: copy2[key1] = %v, want 'val1'", copy2["key1"])
+	}
+	if base["key1"] != "val1" {
+		t.Errorf("mutating copy1 affected base: base[key1] = %v, want 'val1'", base["key1"])
+	}
+}
+
 func TestYamlDecode_ListOfMaps(t *testing.T) {
 	input := "items:\n  - name: a\n    val: 1\n  - name: b\n    val: 2\n"
 	result, err := yamlDecode(input)

@@ -65,17 +65,17 @@ list:
 `
 
 const basic_ouputYaml = `list:
-    - map:
-        a1: 1
-        a2: 2
-        b1: 1
-      name: a1
-    - name: a2
-    - name: a3
+  - map:
+      a1: 1
+      a2: 2
+      b1: 1
+    name: a1
+  - name: a2
+  - name: a3
 root:
-    child1:
-        cc1: 1
-        cc2: 2
-    elem1: value1
-    elem2: value2
+  child1:
+    cc1: 1
+    cc2: 2
+  elem1: value1
+  elem2: value2
 `
