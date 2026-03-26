@@ -408,7 +408,7 @@ func TestNormalizeVlansFunction_InvalidFormat(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:      testAccFunctionUtilsNormalizeVlans_invalidFormat(),
-				ExpectError: regexp.MustCompile(`(?s)Invalid format.*json.*Must be.*string.*or.*list`),
+				ExpectError: regexp.MustCompile(`(?s)Invalid format.*json.*Must be.*string.*string-nxos.*or.*list`),
 			},
 		},
 	})
@@ -519,6 +519,121 @@ func testAccFunctionUtilsNormalizeVlans_invalidFormat() string {
 		value = provider::utils::normalize_vlans({
 			ids = [1, 2, 5]
 		}, "json")
+	}
+	`
+}
+
+// Tests for string-nxos format
+
+func TestNormalizeVlansFunction_StringNxosFormat_Basic(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsNormalizeVlans_stringNxosFormat_basic(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", "1-2,5,10-30,40-50"),
+				),
+			},
+		},
+	})
+}
+
+func TestNormalizeVlansFunction_StringNxosFormat_SingleVlans(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsNormalizeVlans_stringNxosFormat_singleVlans(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", "1,5,10,20"),
+				),
+			},
+		},
+	})
+}
+
+func TestNormalizeVlansFunction_StringNxosFormat_TwoConsecutive(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsNormalizeVlans_stringNxosFormat_twoConsecutive(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", "1-2,5-6,10-12"),
+				),
+			},
+		},
+	})
+}
+
+func TestNormalizeVlansFunction_StringNxosFormat_Empty(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsNormalizeVlans_stringNxosFormat_empty(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", ""),
+				),
+			},
+		},
+	})
+}
+
+// Test configuration functions for string-nxos format tests
+
+func testAccFunctionUtilsNormalizeVlans_stringNxosFormat_basic() string {
+	return `
+	output "test" {
+		value = provider::utils::normalize_vlans({
+			ids = [1, 2, 5]
+			ranges = [
+				{ from = 10, to = 20 },
+				{ from = 21, to = 30 },
+				{ from = 40, to = 50 }
+			]
+		}, "string-nxos")
+	}
+	`
+}
+
+func testAccFunctionUtilsNormalizeVlans_stringNxosFormat_singleVlans() string {
+	return `
+	output "test" {
+		value = provider::utils::normalize_vlans({
+			ids = [1, 5, 10, 20]
+		}, "string-nxos")
+	}
+	`
+}
+
+func testAccFunctionUtilsNormalizeVlans_stringNxosFormat_twoConsecutive() string {
+	return `
+	output "test" {
+		value = provider::utils::normalize_vlans({
+			ids = [1, 2, 5, 6, 10, 11, 12]
+		}, "string-nxos")
+	}
+	`
+}
+
+func testAccFunctionUtilsNormalizeVlans_stringNxosFormat_empty() string {
+	return `
+	output "test" {
+		value = provider::utils::normalize_vlans({}, "string-nxos")
 	}
 	`
 }

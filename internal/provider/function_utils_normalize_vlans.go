@@ -15,14 +15,16 @@ import (
 
 // Format constants to replace magic strings
 const (
-	FormatString = "string"
-	FormatList   = "list"
+	FormatString     = "string"
+	FormatStringNxos = "string-nxos"
+	FormatList       = "list"
 )
 
 // ValidVlanFormats defines valid format values
 var ValidVlanFormats = map[string]bool{
-	FormatString: true,
-	FormatList:   true,
+	FormatString:     true,
+	FormatStringNxos: true,
+	FormatList:       true,
 }
 
 var _ function.Function = NormalizeVlansFunction{}
@@ -62,7 +64,7 @@ func (r NormalizeVlansFunction) Metadata(_ context.Context, req function.Metadat
 func (r NormalizeVlansFunction) Definition(_ context.Context, _ function.DefinitionRequest, resp *function.DefinitionResponse) {
 	resp.Definition = function.Definition{
 		Summary:             "Normalize VLAN IDs and ranges into a compact string format or list of integers",
-		MarkdownDescription: "Takes an object with optional `ids` (list of integers) and `ranges` (list of objects with `from`/`to` fields) and a required `format` parameter. Returns a normalized representation as either a string or list of integers. In string format, 3 or more consecutive IDs are grouped into ranges (e.g., '10-20'), while individual or pairs of VLANs are listed separately (e.g., '1,2' not '1-2'). Both `ids` and `ranges` fields are optional and can be omitted from the input object.",
+		MarkdownDescription: "Takes an object with optional `ids` (list of integers) and `ranges` (list of objects with `from`/`to` fields) and a required `format` parameter. Returns a normalized representation as either a string or list of integers. In string format, 3 or more consecutive IDs are grouped into ranges (e.g., '10-20'), while individual or pairs of VLANs are listed separately (e.g., '1,2' not '1-2'). In string-nxos format, 2 or more consecutive IDs are grouped into ranges (e.g., '1-2' instead of '1,2'). Both `ids` and `ranges` fields are optional and can be omitted from the input object.",
 		Parameters: []function.Parameter{
 			function.DynamicParameter{
 				Name:                "input",
@@ -70,7 +72,7 @@ func (r NormalizeVlansFunction) Definition(_ context.Context, _ function.Definit
 			},
 			function.StringParameter{
 				Name:                "format",
-				MarkdownDescription: "Required output format: 'string' for compact range notation (e.g., '1,2,5,10-30' where ranges are only used for 3+ consecutive VLANs) or 'list' for array of individual VLAN IDs (e.g., [1,2,5,10,11,12,...,30]).",
+				MarkdownDescription: "Required output format: 'string' for compact range notation (e.g., '1,2,5,10-30' where ranges are only used for 3+ consecutive VLANs), 'string-nxos' for NX-OS style notation (e.g., '1-2,5,10-30' where ranges are used for 2+ consecutive VLANs), or 'list' for array of individual VLAN IDs (e.g., [1,2,5,10,11,12,...,30]).",
 			},
 		},
 		Return: function.DynamicReturn{},
@@ -88,7 +90,7 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 
 	// Validate format parameter using constants
 	if !ValidVlanFormats[formatValue] {
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Invalid format '%s'. Must be '%s' or '%s'", formatValue, FormatString, FormatList)))
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Invalid format '%s'. Must be '%s', '%s', or '%s'", formatValue, FormatString, FormatStringNxos, FormatList)))
 		return
 	}
 
@@ -290,7 +292,13 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 		dynamicValue := types.DynamicValue(vlanList)
 		resp.Error = function.ConcatFuncErrors(resp.Result.Set(ctx, dynamicValue))
 	} else {
-		// Return as string with range notation (only for 3+ consecutive VLANs)
+		// Return as string with range notation
+		// Determine the minimum consecutive count to use range notation
+		minRangeSize := 3 // default for "string" format
+		if formatValue == FormatStringNxos {
+			minRangeSize = 2
+		}
+
 		var result []string
 		start := vlans[0]
 		end := vlans[0]
@@ -302,11 +310,11 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 			} else {
 				// Non-consecutive VLAN, finalize the current range
 				rangeSize := end - start + 1
-				if rangeSize >= 3 {
-					// Use range notation for 3 or more consecutive VLANs
+				if rangeSize >= minRangeSize {
+					// Use range notation for consecutive VLANs meeting threshold
 					result = append(result, fmt.Sprintf("%d-%d", start, end))
 				} else {
-					// Output individual VLANs for 1 or 2 consecutive IDs
+					// Output individual VLANs
 					for j := start; j <= end; j++ {
 						result = append(result, strconv.Itoa(j))
 					}
@@ -318,11 +326,11 @@ func (r NormalizeVlansFunction) Run(ctx context.Context, req function.RunRequest
 
 		// Add the final range
 		rangeSize := end - start + 1
-		if rangeSize >= 3 {
-			// Use range notation for 3 or more consecutive VLANs
+		if rangeSize >= minRangeSize {
+			// Use range notation for consecutive VLANs meeting threshold
 			result = append(result, fmt.Sprintf("%d-%d", start, end))
 		} else {
-			// Output individual VLANs for 1 or 2 consecutive IDs
+			// Output individual VLANs
 			for j := start; j <= end; j++ {
 				result = append(result, strconv.Itoa(j))
 			}
