@@ -13,6 +13,16 @@ func resolveYamlTags(v any) (any, error) {
 	switch val := v.(type) {
 	case string:
 		return resolveTagString(val)
+	case *OrderedMap:
+		result := NewOrderedMap(val.Len())
+		for _, e := range val.Entries() {
+			resolved, err := resolveYamlTags(e.Value)
+			if err != nil {
+				return nil, err
+			}
+			result.Set(e.Key, resolved)
+		}
+		return result, nil
 	case map[string]any:
 		result := make(map[string]any, len(val))
 		for k, v := range val {

@@ -193,6 +193,23 @@ func convertNativeToDynamicWithDepth(ctx context.Context, val any, depth int) (t
 			return types.DynamicNull(), fmt.Errorf("error creating object value: %s", diag.Errors()[0].Summary())
 		}
 		return types.DynamicValue(objVal), nil
+	case *OrderedMap:
+		// Convert OrderedMap to Terraform object (ordering is not preserved in Terraform types)
+		attrs := make(map[string]attr.Value)
+		attrTypes := make(map[string]attr.Type)
+		for _, e := range v.Entries() {
+			dynElem, err := convertNativeToDynamicWithDepth(ctx, e.Value, depth+1)
+			if err != nil {
+				return types.DynamicNull(), fmt.Errorf("error converting map element '%s': %w", e.Key, err)
+			}
+			attrs[e.Key] = dynElem
+			attrTypes[e.Key] = types.DynamicType
+		}
+		objVal, diag := types.ObjectValue(attrTypes, attrs)
+		if diag.HasError() {
+			return types.DynamicNull(), fmt.Errorf("error creating object value: %s", diag.Errors()[0].Summary())
+		}
+		return types.DynamicValue(objVal), nil
 	default:
 		return types.DynamicNull(), fmt.Errorf("unsupported type: %T", val)
 	}

@@ -242,9 +242,9 @@ func (d *yamlDecoder) handleInteger(n *ast.IntegerNode) (any, error) {
 	}
 }
 
-// handleMapping converts a MappingNode to a map[string]any.
+// handleMapping converts a MappingNode to an *OrderedMap preserving key order.
 func (d *yamlDecoder) handleMapping(n *ast.MappingNode) (any, error) {
-	result := make(map[string]any, len(n.Values))
+	result := NewOrderedMap(len(n.Values))
 	for _, mv := range n.Values {
 		if mv.Key.IsMergeKey() {
 			// Handle merge key (<<) — merge the referenced map into the result
@@ -253,19 +253,19 @@ func (d *yamlDecoder) handleMapping(n *ast.MappingNode) (any, error) {
 				return nil, err
 			}
 			switch merged := mergedVal.(type) {
-			case map[string]any:
-				for k, v := range merged {
-					if _, exists := result[k]; !exists {
-						result[k] = v
+			case *OrderedMap:
+				for _, e := range merged.Entries() {
+					if !result.Has(e.Key) {
+						result.Set(e.Key, e.Value)
 					}
 				}
 			case []any:
 				// Merge key with sequence of maps
 				for _, item := range merged {
-					if m, ok := item.(map[string]any); ok {
-						for k, v := range m {
-							if _, exists := result[k]; !exists {
-								result[k] = v
+					if m, ok := item.(*OrderedMap); ok {
+						for _, e := range m.Entries() {
+							if !result.Has(e.Key) {
+								result.Set(e.Key, e.Value)
 							}
 						}
 					}
@@ -285,7 +285,7 @@ func (d *yamlDecoder) handleMapping(n *ast.MappingNode) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		result[key] = value
+		result.Set(key, value)
 	}
 	return result, nil
 }
@@ -300,7 +300,9 @@ func (d *yamlDecoder) handleMappingValue(n *ast.MappingValueNode) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{key: value}, nil
+	result := NewOrderedMap(1)
+	result.Set(key, value)
+	return result, nil
 }
 
 // extractMapKey extracts a string key from a MapKeyNode.
@@ -365,10 +367,15 @@ func (d *yamlDecoder) handleAlias(n *ast.AliasNode) (any, error) {
 
 // deepCopy recursively copies a value produced by yamlDecode so that
 // alias references are independent of the anchored original.
-// Only types emitted by the decoder need handling: map[string]any, []any,
-// and immutable primitives (string, int, float64, bool, nil).
+// Handles *OrderedMap, map[string]any, []any, and immutable primitives.
 func deepCopy(v any) any {
 	switch val := v.(type) {
+	case *OrderedMap:
+		cp := NewOrderedMap(val.Len())
+		for _, e := range val.Entries() {
+			cp.Set(e.Key, deepCopy(e.Value))
+		}
+		return cp
 	case map[string]any:
 		cp := make(map[string]any, len(val))
 		for k, v := range val {
@@ -388,8 +395,12 @@ func deepCopy(v any) any {
 
 // yamlEncode marshals a native Go value to a YAML string using github.com/goccy/go-yaml.
 // It produces block-style YAML with 2-space indentation and indented sequences.
+// *OrderedMap values are converted to goccy/go-yaml MapSlice to preserve key order.
+// map[string]any values are sorted alphabetically by the library (Terraform Dynamic path).
 func yamlEncode(v any) (string, error) {
-	out, err := goyaml.MarshalWithOptions(v, goyaml.IndentSequence(true))
+	// Convert OrderedMap hierarchy to MapSlice for order-preserving encoding
+	encoded := toMapSlice(v)
+	out, err := goyaml.MarshalWithOptions(encoded, goyaml.IndentSequence(true))
 	if err != nil {
 		return "", fmt.Errorf("error encoding value to YAML: %w", err)
 	}

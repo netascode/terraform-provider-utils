@@ -71,7 +71,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 		config.MergeListItems = types.BoolValue(true)
 	}
 
-	merged := map[string]any{}
+	merged := NewOrderedMap(0)
 	for _, input := range config.Input {
 		decoded, err := yamlDecode(input)
 		if err != nil {
@@ -91,7 +91,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 			return
 		}
 
-		data, ok := resolved.(map[string]any)
+		data, ok := resolved.(*OrderedMap)
 		if !ok {
 			resp.Diagnostics.AddError(
 				"Error reading YAML string",

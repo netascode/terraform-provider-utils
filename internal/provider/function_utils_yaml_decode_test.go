@@ -9,6 +9,26 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
 
+// toNativeMap recursively converts *OrderedMap to map[string]any for test assertions.
+func toNativeMap(v any) any {
+	switch val := v.(type) {
+	case *OrderedMap:
+		result := make(map[string]any, val.Len())
+		for _, e := range val.Entries() {
+			result[e.Key] = toNativeMap(e.Value)
+		}
+		return result
+	case []any:
+		result := make([]any, len(val))
+		for i, item := range val {
+			result[i] = toNativeMap(item)
+		}
+		return result
+	default:
+		return v
+	}
+}
+
 // Unit tests for the yamlDecode helper
 
 func TestYamlDecode_SimpleMap(t *testing.T) {
@@ -16,7 +36,7 @@ func TestYamlDecode_SimpleMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m, ok := result.(map[string]any)
+	m, ok := toNativeMap(result).(map[string]any)
 	if !ok {
 		t.Fatalf("expected map[string]any, got %T", result)
 	}
@@ -30,7 +50,7 @@ func TestYamlDecode_NestedMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	parent := m["parent"].(map[string]any)
 	if parent["child"] != "value" {
 		t.Errorf("unexpected result: %v", parent)
@@ -57,7 +77,7 @@ func TestYamlDecode_DataTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 
 	if m["bool_val"] != true {
 		t.Errorf("bool_val: expected true, got %v (%T)", m["bool_val"], m["bool_val"])
@@ -81,7 +101,7 @@ func TestYamlDecode_UnknownTagPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	if m["val"] != "!env ABC" {
 		t.Errorf("expected '!env ABC', got %v", m["val"])
 	}
@@ -93,7 +113,7 @@ func TestYamlDecode_MultipleUnknownTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	if m["db"] != "!env DATABASE_URL" {
 		t.Errorf("db: expected '!env DATABASE_URL', got %v", m["db"])
 	}
@@ -122,7 +142,7 @@ func TestYamlDecode_StandardTags(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			m := result.(map[string]any)
+			m := toNativeMap(result).(map[string]any)
 			if m[tt.key] != tt.expected {
 				t.Errorf("expected %v (%T), got %v (%T)", tt.expected, tt.expected, m[tt.key], m[tt.key])
 			}
@@ -175,7 +195,7 @@ func TestYamlDecode_Anchors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	if m["anchor"] != "hello" {
 		t.Errorf("anchor: expected 'hello', got %v", m["anchor"])
 	}
@@ -192,7 +212,7 @@ func TestYamlDecode_AliasDeepCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	base := m["base"].(map[string]any)
 	copy1 := m["copy1"].(map[string]any)
 	copy2 := m["copy2"].(map[string]any)
@@ -221,7 +241,7 @@ func TestYamlDecode_ListOfMaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	items := m["items"].([]any)
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
@@ -238,7 +258,7 @@ func TestYamlDecode_InfinityAndNaN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 
 	infVal, ok := m["inf_val"].(float64)
 	if !ok || !math.IsInf(infVal, 1) {
@@ -260,7 +280,7 @@ func TestYamlDecode_MergeKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	prod := m["production"].(map[string]any)
 	if prod["adapter"] != "postgres" {
 		t.Errorf("expected 'postgres', got %v", prod["adapter"])
@@ -279,7 +299,7 @@ func TestYamlDecode_LiteralBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m := result.(map[string]any)
+	m := toNativeMap(result).(map[string]any)
 	expected := "line1\nline2\n"
 	if m["val"] != expected {
 		t.Errorf("expected %q, got %q", expected, m["val"])

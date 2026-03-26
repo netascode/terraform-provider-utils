@@ -59,7 +59,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 		return
 	}
 
-	merged := map[string]any{}
+	merged := NewOrderedMap(0)
 	for _, input := range input {
 		decoded, err := yamlDecode(input)
 		if err != nil {
@@ -73,7 +73,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 			return
 		}
 
-		data, ok := resolved.(map[string]any)
+		data, ok := resolved.(*OrderedMap)
 		if !ok {
 			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error reading YAML string: expected a YAML mapping at the top level"))
 			return

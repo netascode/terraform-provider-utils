@@ -139,7 +139,7 @@ func TestYamlEncode_TypePreservation(t *testing.T) {
 		t.Fatalf("Failed to decode yamlEncode result: %v", err)
 	}
 
-	unmarshaled, ok := decoded.(map[string]any)
+	unmarshaled, ok := toNativeMap(decoded).(map[string]any)
 	if !ok {
 		t.Fatalf("Expected decoded result to be map[string]any, got %T", decoded)
 	}
@@ -187,5 +187,68 @@ func TestYamlEncode_MapKeyOrdering(t *testing.T) {
 	expected := "apple: 2\nbanana: 3\ncharlie: 4\nzebra: 1\n"
 	if result1 != expected {
 		t.Errorf("yamlEncode() keys not sorted:\nGot:\n%s\nExpected:\n%s", result1, expected)
+	}
+}
+
+func TestYamlRoundtrip_PreservesKeyOrder(t *testing.T) {
+	// Keys should come back in the same order they appeared in the source YAML
+	input := "zebra: 1\napple: 2\nbanana: 3\n"
+	decoded, err := yamlDecode(input)
+	if err != nil {
+		t.Fatalf("yamlDecode() error = %v", err)
+	}
+
+	encoded, err := yamlEncode(decoded)
+	if err != nil {
+		t.Fatalf("yamlEncode() error = %v", err)
+	}
+
+	if encoded != input {
+		t.Errorf("roundtrip did not preserve key order:\nInput:    %q\nOutput:   %q", input, encoded)
+	}
+}
+
+func TestYamlRoundtrip_NestedPreservesKeyOrder(t *testing.T) {
+	input := "z_parent:\n  b_child: 1\n  a_child: 2\na_parent:\n  y_key: 3\n  x_key: 4\n"
+	decoded, err := yamlDecode(input)
+	if err != nil {
+		t.Fatalf("yamlDecode() error = %v", err)
+	}
+
+	encoded, err := yamlEncode(decoded)
+	if err != nil {
+		t.Fatalf("yamlEncode() error = %v", err)
+	}
+
+	if encoded != input {
+		t.Errorf("roundtrip did not preserve nested key order:\nInput:\n%s\nOutput:\n%s", input, encoded)
+	}
+}
+
+func TestYamlMerge_PreservesFirstDocOrder(t *testing.T) {
+	// First doc defines key order; second doc adds new keys at the end
+	doc1 := "port: 8080\nhost: localhost\nname: app\n"
+	doc2 := "debug: true\nhost: remotehost\n"
+
+	decoded1, err := yamlDecode(doc1)
+	if err != nil {
+		t.Fatalf("yamlDecode(doc1) error = %v", err)
+	}
+	decoded2, err := yamlDecode(doc2)
+	if err != nil {
+		t.Fatalf("yamlDecode(doc2) error = %v", err)
+	}
+
+	MergeMaps(decoded2, decoded1, true)
+
+	encoded, err := yamlEncode(decoded1)
+	if err != nil {
+		t.Fatalf("yamlEncode() error = %v", err)
+	}
+
+	// port, host, name from doc1 order; host value overridden by doc2; debug appended at end
+	expected := "port: 8080\nhost: remotehost\nname: app\ndebug: true\n"
+	if encoded != expected {
+		t.Errorf("merge did not preserve first doc order:\nExpected:\n%s\nGot:\n%s", expected, encoded)
 	}
 }
