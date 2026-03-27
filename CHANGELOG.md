@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Add `version_compare` function
 - Add `normalize_bgp_rd` function
 - Add `normalize_bgp_rt` function
 - Add `normalize_vlans` function
