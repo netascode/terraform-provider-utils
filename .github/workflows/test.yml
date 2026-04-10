@@ -28,7 +28,13 @@ jobs:
         with:
           go-version-file: "go.mod"
           cache: true
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.8.*"
+          terraform_wrapper: false
       - run: go mod download
+      - run: go generate
+      - run: git diff --exit-code
       - run: go build -v .
 
   # Run acceptance tests in a matrix with Terraform CLI versions
