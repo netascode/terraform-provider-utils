@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"sort"
+
 	goyaml "github.com/goccy/go-yaml"
 )
 
@@ -91,7 +93,7 @@ func (m *OrderedMap) ToMap() map[string]any {
 }
 
 // toMapSlice recursively converts a value to goccy/go-yaml MapSlice representation.
-// *OrderedMap → MapSlice, []any elements are recursively converted, other types pass through.
+// *OrderedMap → MapSlice, map[string]any → MapSlice, []any elements are recursively converted, other types pass through.
 func toMapSlice(v any) any {
 	switch val := v.(type) {
 	case *OrderedMap:
@@ -100,6 +102,20 @@ func toMapSlice(v any) any {
 			ms = append(ms, goyaml.MapItem{
 				Key:   e.Key,
 				Value: toMapSlice(e.Value),
+			})
+		}
+		return ms
+	case map[string]any:
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		ms := make(goyaml.MapSlice, 0, len(val))
+		for _, k := range keys {
+			ms = append(ms, goyaml.MapItem{
+				Key:   k,
+				Value: toMapSlice(val[k]),
 			})
 		}
 		return ms

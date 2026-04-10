@@ -1,14 +1,20 @@
 ## Unreleased
 
-- Add `version_compare` function
+- BREAKING CHANGE: Preserve within-file duplicates when merging YAML lists ([#150](https://github.com/netascode/terraform-provider-utils/pull/150))
+- Add `render_device_configs` function
+- Add `yaml_encode` function
+- Add `yaml_decode` function
+- Add `resolve_yaml_tags` function
 - Add `normalize_bgp_rd` function
 - Add `normalize_bgp_rt` function
 - Add `normalize_vlans` function
 - Add `merge` function
 - Add `normalize_mask` function
 - Add `normalize_mac` function
+- Retain map ordering in `yaml_merge`
 - Handle merging of scalars and maps in the same list gracefully
 - Fix `yaml_merge` losing string type for values that look like scientific notation, numbers, booleans, or timestamps
+- - Add `version_compare` function
 
 ## 1.0.2
 
