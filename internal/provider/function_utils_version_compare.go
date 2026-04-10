@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -46,10 +45,6 @@ func (r VersionCompareFunction) Run(ctx context.Context, req function.RunRequest
 	if resp.Error != nil {
 		return
 	}
-
-	// Strip leading 'v' prefix if present for compatibility
-	v1String = strings.TrimPrefix(v1String, "v")
-	v2String = strings.TrimPrefix(v2String, "v")
 
 	// Parse first version
 	v1, err := version.NewVersion(v1String)
