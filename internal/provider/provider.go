@@ -57,6 +57,7 @@ func (p *utilsProvider) Functions(ctx context.Context) []func() function.Functio
 		NewYamlEncodeFunction,
 		NewYamlDecodeFunction,
 		NewResolveYamlTagsFunction,
+		NewRenderDeviceConfigsFunction,
 	}
 }
 

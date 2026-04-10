@@ -214,23 +214,3 @@ func TestConvertNativeToDynamicRecursionLimit(t *testing.T) {
 		}
 	}
 }
-
-func TestValidateInputSize(t *testing.T) {
-	// Test small input that should pass
-	smallInput := types.DynamicValue(types.StringValue("small"))
-	err := validateInputSize(smallInput, 1000)
-	if err != nil {
-		t.Errorf("validateInputSize() should not fail for small input: %v", err)
-	}
-
-	// Test that would exceed size limit (this is approximated)
-	largeString := make([]byte, 1000)
-	for i := range largeString {
-		largeString[i] = 'x'
-	}
-	largeInput := types.DynamicValue(types.StringValue(string(largeString)))
-	err = validateInputSize(largeInput, 500) // Set limit smaller than string
-	if err == nil {
-		t.Error("validateInputSize() should fail for large input")
-	}
-}

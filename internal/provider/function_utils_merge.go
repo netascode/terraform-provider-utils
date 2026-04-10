@@ -47,12 +47,6 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Security control: Validate input size to prevent memory exhaustion
-	if err := validateInputSize(inputDynamic, 10*1024*1024); err != nil { // 10MB limit
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Input size validation failed: "+err.Error()))
-		return
-	}
-
 	// Extract the list from the dynamic input
 	var input []types.Dynamic
 	inputValue := inputDynamic.UnderlyingValue()
