@@ -34,4 +34,8 @@ website/vendor
 # Keep windows files with windows line endings
 *.winfile eol=crlf
 
+tmp
 .env
+
+# SBOM files generated during release
+*_sbom.*.json
