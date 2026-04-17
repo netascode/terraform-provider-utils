@@ -59,8 +59,8 @@ func TestMergeFunction_EdgeCases(t *testing.T) {
 			{
 				Config: testAccFunctionUtilsMerge_edgeCases(),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					// Test null value handling - nulls don't override existing values in merge
-					resource.TestCheckOutput("test_null_values", `{"a":"value","c":"override"}`),
+					// Test null value handling - nil source values are skipped, destination nulls preserved
+					resource.TestCheckOutput("test_null_values", `{"a":"value","b":null,"c":"override"}`),
 
 					// Test different data types
 					resource.TestCheckOutput("test_data_types", `{"bool_val":false,"number_val":42.5,"string_val":"updated"}`),

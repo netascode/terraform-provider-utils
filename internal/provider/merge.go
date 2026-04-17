@@ -85,10 +85,6 @@ func mapLen(m any) int {
 func MergeMaps(src, dst any, deduplicate bool) any {
 	mapForEach(src, func(key string, sValue any) {
 		if sValue == nil {
-			// nil source values delete nil destination keys
-			if dValue, exists := mapGet(dst, key); exists && dValue == nil {
-				mapDelete(dst, key)
-			}
 			return
 		}
 		dValue, exists := mapGet(dst, key)
@@ -121,9 +117,6 @@ func MergeMaps(src, dst any, deduplicate bool) any {
 				}
 			}
 
-			if s, ok := sValue.(string); ok && s == "" {
-				return
-			}
 			mapSet(dst, key, sValue)
 		}
 	})
@@ -147,7 +140,6 @@ func itemsWouldMerge(item1, item2 any) bool {
 	comparison := false
 	mismatch := false
 
-	// Check item1 primitive fields against item2
 	mapForEach(item1, func(k string, v1 any) {
 		if mismatch {
 			return
@@ -157,27 +149,6 @@ func itemsWouldMerge(item1, item2 any) bool {
 		}
 		v2, ok := mapGet(item2, k)
 		if !ok || !isPrimitive(v2) {
-			return
-		}
-		comparison = true
-		if v1 != v2 {
-			mismatch = true
-		}
-	})
-	if mismatch {
-		return false
-	}
-
-	// Check item2 primitive fields against item1
-	mapForEach(item2, func(k string, v2 any) {
-		if mismatch {
-			return
-		}
-		if !isPrimitive(v2) {
-			return
-		}
-		v1, ok := mapGet(item1, k)
-		if !ok || !isPrimitive(v1) {
 			return
 		}
 		comparison = true

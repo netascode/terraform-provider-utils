@@ -190,7 +190,7 @@ func TestMergeMaps(t *testing.T) {
 				"attr": false,
 			},
 		},
-		// empty src string does not replace dst string
+		// empty src string replaces dst string
 		{
 			dst: map[string]any{
 				"attr": "abc",
@@ -199,7 +199,7 @@ func TestMergeMaps(t *testing.T) {
 				"attr": "",
 			},
 			result: map[string]any{
-				"attr": "abc",
+				"attr": "",
 			},
 		},
 		// src string replaces dst string
