@@ -1,6 +1,8 @@
 ## Unreleased
 
-- BREAKING CHANGE: Preserve within-file duplicates when merging YAML lists ([#150](https://github.com/netascode/terraform-provider-utils/pull/150))
+- BREAKING CHANGE: Rework list merge logic — within-file duplicates are now preserved; if any file contains duplicate dict items in a list, merging is disabled for that entire list and items are concatenated instead
+- BREAKING CHANGE: Two dict items in a list now merge when all shared primitive fields match, even if both sides have additional unique primitive fields (previously this was blocked)
+- BREAKING CHANGE: Empty strings and null values in source now overwrite destination values during merge (previously they were silently skipped)
 - Add `render_device_configs` function
 - Add `yaml_encode` function
 - Add `yaml_decode` function
