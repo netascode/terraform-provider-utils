@@ -64,8 +64,8 @@ func (r YamlDecodeFunction) Run(ctx context.Context, req function.RunRequest, re
 	defer cancel()
 
 	// Security control: Validate input size to prevent memory exhaustion
-	if int64(len(input)) > 10*1024*1024 { // 10MB limit
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Input size (%d bytes) exceeds maximum allowed size (10MB)", len(input))))
+	if int64(len(input)) > 100*1024*1024 { // 100MB limit
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Input size (%d bytes) exceeds maximum allowed size (100MB)", len(input))))
 		return
 	}
 

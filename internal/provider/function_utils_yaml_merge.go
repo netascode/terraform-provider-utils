@@ -71,8 +71,8 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 	for _, yamlStr := range input {
 		totalSize += int64(len(yamlStr))
 	}
-	if totalSize > 10*1024*1024 { // 10MB limit
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Input size (%d bytes) exceeds maximum allowed size (10MB)", totalSize)))
+	if totalSize > 100*1024*1024 { // 100MB limit
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Input size (%d bytes) exceeds maximum allowed size (100MB)", totalSize)))
 		return
 	}
 
