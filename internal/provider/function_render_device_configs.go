@@ -47,6 +47,7 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 		MarkdownDescription: "Processes a Network as Code model structure to produce fully rendered per-device configurations. " +
 			"Handles template evaluation, deep merging with precedence cascade (global → group → device), " +
 			"interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures.\n\n" +
+			"~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.\n\n" +
 			"## Template Functions\n\n" +
 			"The following functions are available inside `${}` template expressions in model templates, " +
 			"file templates, and CLI templates:\n\n" +

@@ -10,6 +10,8 @@ description: |-
 
 Takes a MAC address in any common format (colon-separated, dash-separated, or dotted) and a format parameter. Returns the MAC address in the specified format. Supports 'dotted' (Cisco xxxx.xxxx.xxxx), 'colon' (IEEE 802 xx:xx:xx:xx:xx:xx), and 'dash' (xx-xx-xx-xx-xx-xx) formats.
 
+~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
+
 ## Example Usage
 
 ```terraform

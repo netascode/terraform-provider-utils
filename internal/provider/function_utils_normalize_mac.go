@@ -97,7 +97,7 @@ func (r NormalizeMacFunction) Metadata(_ context.Context, req function.MetadataR
 func (r NormalizeMacFunction) Definition(_ context.Context, _ function.DefinitionRequest, resp *function.DefinitionResponse) {
 	resp.Definition = function.Definition{
 		Summary:             "Normalize MAC address to specified format",
-		MarkdownDescription: "Takes a MAC address in any common format (colon-separated, dash-separated, or dotted) and a format parameter. Returns the MAC address in the specified format. Supports 'dotted' (Cisco xxxx.xxxx.xxxx), 'colon' (IEEE 802 xx:xx:xx:xx:xx:xx), and 'dash' (xx-xx-xx-xx-xx-xx) formats.",
+		MarkdownDescription: "Takes a MAC address in any common format (colon-separated, dash-separated, or dotted) and a format parameter. Returns the MAC address in the specified format. Supports 'dotted' (Cisco xxxx.xxxx.xxxx), 'colon' (IEEE 802 xx:xx:xx:xx:xx:xx), and 'dash' (xx-xx-xx-xx-xx-xx) formats.\n\n~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.",
 		Parameters: []function.Parameter{
 			function.StringParameter{
 				Name:                "mac",

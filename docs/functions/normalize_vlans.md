@@ -10,6 +10,8 @@ description: |-
 
 Takes an object with optional `ids` (list of integers) and `ranges` (list of objects with `from`/`to` fields) and a required `format` parameter. Returns a normalized representation as either a string or list of integers. In string format, 3 or more consecutive IDs are grouped into ranges (e.g., '10-20'), while individual or pairs of VLANs are listed separately (e.g., '1,2' not '1-2'). In string-nxos format, 2 or more consecutive IDs are grouped into ranges (e.g., '1-2' instead of '1,2'). Both `ids` and `ranges` fields are optional and can be omitted from the input object.
 
+~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
+
 ## Example Usage
 
 ```terraform

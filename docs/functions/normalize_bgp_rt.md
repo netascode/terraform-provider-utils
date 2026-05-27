@@ -10,6 +10,8 @@ description: |-
 
 Takes a BGP RT in standard colon notation (e.g., '65000:1001', '192.168.100.1:1002', '4200000001:1003') or the keyword 'auto' and returns an object with the detected format type and parsed components. Supports four format types: 'auto' (BGP RT auto-assignment), 'two_byte_as' (AS <= 65535), 'four_byte_as' (AS > 65535), and 'ipv4_address' (IPv4:value).
 
+~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
+
 ## Return Object
 
 The function returns an object with the following attributes:

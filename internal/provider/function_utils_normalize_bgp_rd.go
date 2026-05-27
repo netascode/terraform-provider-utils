@@ -120,6 +120,7 @@ func (r NormalizeBgpRdFunction) Definition(_ context.Context, _ function.Definit
 	resp.Definition = function.Definition{
 		Summary:             "Normalize a BGP Route Distinguisher from colon notation",
 		MarkdownDescription: "Takes a BGP RD in standard colon notation (e.g., '65000:1001', '192.168.100.1:1002', '4200000001:1003') or the keyword 'auto' and returns an object with the detected format type and parsed components. Supports four format types: 'auto' (BGP RD auto-assignment), 'two_byte_as' (AS <= 65535), 'four_byte_as' (AS > 65535), and 'ipv4_address' (IPv4:value).\n\n" +
+			"~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.\n\n" +
 			"## Return Object\n\n" +
 			"The function returns an object with the following attributes:\n\n" +
 			"| Attribute | Type | Description |\n" +

@@ -10,6 +10,8 @@ description: |-
 
 Processes a Network as Code model structure to produce fully rendered per-device configurations. Handles template evaluation, deep merging with precedence cascade (global → group → device), interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures.
 
+~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
+
 ## Template Functions
 
 The following functions are available inside `${}` template expressions in model templates, file templates, and CLI templates:

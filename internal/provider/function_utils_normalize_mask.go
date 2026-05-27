@@ -81,7 +81,7 @@ func (r NormalizeMaskFunction) Metadata(_ context.Context, req function.Metadata
 func (r NormalizeMaskFunction) Definition(_ context.Context, _ function.DefinitionRequest, resp *function.DefinitionResponse) {
 	resp.Definition = function.Definition{
 		Summary:             "Normalize subnet mask from prefix length to specified format",
-		MarkdownDescription: "Takes a subnet mask in prefix length format (0-32) and a format parameter. Returns the mask in the specified format. Currently supports 'dotted-decimal' format (e.g., 24 → '255.255.255.0').",
+		MarkdownDescription: "Takes a subnet mask in prefix length format (0-32) and a format parameter. Returns the mask in the specified format. Currently supports 'dotted-decimal' format (e.g., 24 → '255.255.255.0').\n\n~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.",
 		Parameters: []function.Parameter{
 			function.NumberParameter{
 				Name:                "mask",

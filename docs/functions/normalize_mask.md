@@ -10,6 +10,8 @@ description: |-
 
 Takes a subnet mask in prefix length format (0-32) and a format parameter. Returns the mask in the specified format. Currently supports 'dotted-decimal' format (e.g., 24 → '255.255.255.0').
 
+~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
+
 ## Example Usage
 
 ```terraform
