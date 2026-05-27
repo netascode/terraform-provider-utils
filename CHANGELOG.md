@@ -1,4 +1,4 @@
-## Unreleased
+## 2.0.0
 
 - BREAKING CHANGE: Rework list merge logic — within-file duplicates are now preserved; if any file contains duplicate dict items in a list, merging is disabled for that entire list and items are concatenated instead
 - BREAKING CHANGE: Two dict items in a list now merge when all shared primitive fields match, even if both sides have additional unique primitive fields (previously this was blocked)
