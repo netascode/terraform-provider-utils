@@ -43,6 +43,52 @@ func TestYamlMergeFunction_Known(t *testing.T) {
 	})
 }
 
+func TestYamlMergeFunction_EmptyDocuments(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccFunctionUtilsYamlMerge_emptyDocs(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test_empty_string", "foo: bar\n"),
+					resource.TestCheckOutput("test_comment_only", "foo: bar\n"),
+					resource.TestCheckOutput("test_whitespace_only", "foo: bar\n"),
+					resource.TestCheckOutput("test_empty_between", "foo: bar\n"),
+				),
+			},
+		},
+	})
+}
+
+func testAccFunctionUtilsYamlMerge_emptyDocs() string {
+	return `
+	locals {
+		valid = <<-EOT
+		foo: bar
+		EOT
+	}
+
+	output "test_empty_string" {
+		value = provider::utils::yaml_merge(["", local.valid])
+	}
+
+	output "test_comment_only" {
+		value = provider::utils::yaml_merge(["# just a comment\n# another comment\n", local.valid])
+	}
+
+	output "test_whitespace_only" {
+		value = provider::utils::yaml_merge(["   \n  \n", local.valid])
+	}
+
+	output "test_empty_between" {
+		value = provider::utils::yaml_merge([local.valid, "", local.valid])
+	}
+	`
+}
+
 func testAccFunctionUtilsYamlMerge_config(yaml1, yaml2 string, envs map[string]string) string {
 	for k, v := range envs {
 		os.Setenv(k, v)

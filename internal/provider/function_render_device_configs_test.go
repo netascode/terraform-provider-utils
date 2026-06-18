@@ -24,6 +24,58 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
 
+func TestRenderDeviceConfigsFunction_EmptyYamlInputs(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_emptyYamlInputs(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("device_name", "spine1"),
+					resource.TestCheckOutput("hostname", "spine1"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_emptyYamlInputs() string {
+	return `
+	locals {
+		model = {
+			nxos = {
+				devices = [
+					{
+						name = "spine1"
+						configuration = {
+							system = {
+								hostname = "spine1"
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs(
+			["", "# just a comment\n", "   \n  \n"],
+			local.model, "", {}, [], []
+		)
+		device = local.result.raw.nxos.devices[0]
+	}
+
+	output "device_name" {
+		value = local.device.name
+	}
+	output "hostname" {
+		value = local.device.configuration.system.hostname
+	}
+	`
+}
+
 func TestRenderDeviceConfigsFunction_Basic(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{

@@ -83,6 +83,9 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error reading YAML string: "+err.Error()))
 			return
 		}
+		if decoded == nil {
+			continue
+		}
 
 		resolved, err := resolveYamlTags(decoded)
 		if err != nil {

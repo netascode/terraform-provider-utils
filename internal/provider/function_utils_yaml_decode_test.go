@@ -325,6 +325,35 @@ func TestYamlDecode_LiteralBlock(t *testing.T) {
 
 // Acceptance tests for the Terraform function
 
+func TestYamlDecodeFunction_EmptyDocument(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				output "empty_string" {
+					value = jsonencode(provider::utils::yaml_decode(""))
+				}
+				output "comment_only" {
+					value = jsonencode(provider::utils::yaml_decode("# just a comment\n# another comment\n"))
+				}
+				output "whitespace_only" {
+					value = jsonencode(provider::utils::yaml_decode("   \n  \n"))
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("empty_string", "null"),
+					resource.TestCheckOutput("comment_only", "null"),
+					resource.TestCheckOutput("whitespace_only", "null"),
+				),
+			},
+		},
+	})
+}
+
 func TestYamlDecodeFunction_SimpleMap(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{

@@ -7,6 +7,10 @@ description: |-
 
 # Changelog
 
+## Unreleased
+
+- Fix `yaml_merge` data source and function to silently skip empty or comment-only YAML documents instead of returning an error
+
 ## 2.0.0
 
 - BREAKING CHANGE: Rework list merge logic — within-file duplicates are now preserved; if any file contains duplicate dict items in a list, merging is disabled for that entire list and items are concatenated instead

@@ -98,6 +98,9 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 			)
 			return
 		}
+		if decoded == nil {
+			continue
+		}
 
 		resolved, err := resolveYamlTags(decoded)
 		if err != nil {

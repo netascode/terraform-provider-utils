@@ -40,6 +40,50 @@ func TestAccDataSourceUtilsYamlMerge(t *testing.T) {
 	})
 }
 
+func TestAccDataSourceUtilsYamlMerge_EmptyDocuments(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDataSourceUtilsYamlMerge_emptyDocs(),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("data.utils_yaml_merge.empty_string", "output", "foo: bar\n"),
+					resource.TestCheckResourceAttr("data.utils_yaml_merge.comment_only", "output", "foo: bar\n"),
+					resource.TestCheckResourceAttr("data.utils_yaml_merge.whitespace_only", "output", "foo: bar\n"),
+					resource.TestCheckResourceAttr("data.utils_yaml_merge.empty_between", "output", "foo: bar\n"),
+				),
+			},
+		},
+	})
+}
+
+func testAccDataSourceUtilsYamlMerge_emptyDocs() string {
+	return `
+	locals {
+		valid = <<-EOT
+		foo: bar
+		EOT
+	}
+
+	data "utils_yaml_merge" "empty_string" {
+		input = ["", local.valid]
+	}
+
+	data "utils_yaml_merge" "comment_only" {
+		input = ["# just a comment\n# another comment\n", local.valid]
+	}
+
+	data "utils_yaml_merge" "whitespace_only" {
+		input = ["   \n  \n", local.valid]
+	}
+
+	data "utils_yaml_merge" "empty_between" {
+		input = [local.valid, "", local.valid]
+	}
+	`
+}
+
 func testAccDataSourceUtilsYamlMerge_config(yaml1, yaml2 string, envs map[string]string) string {
 	for k, v := range envs {
 		os.Setenv(k, v)
