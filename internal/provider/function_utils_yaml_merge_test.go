@@ -93,6 +93,41 @@ func TestYamlMergeFunction_ScientificNotationString(t *testing.T) {
 	})
 }
 
+// TestYamlMergeFunction_ControlCharacters verifies that \r, \t, and other C0
+// control characters survive the YAML decode → merge → encode round-trip.
+// This is a regression test for issue #174 where v2.0.0 lost these characters
+// because the encoder chose block scalar style (|), which cannot represent CR or TAB.
+func TestYamlMergeFunction_ControlCharacters(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// The YAML below uses YAML double-quoted escape sequences (\r, \n, \t).
+				// The HCL heredoc passes them through as literal backslash sequences,
+				// so the YAML parser decodes \r → CR (0x0D), \t → TAB (0x09), etc.
+				Config: `
+				locals {
+					input = <<-EOT
+					banner:
+					  crlf: "line1\r\nline2\n"
+					  tab: "col1\tcol2\n"
+					EOT
+				}
+				output "test" {
+					value = provider::utils::yaml_merge([local.input])
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", "banner:\n  crlf: \"line1\\r\\nline2\\n\"\n  tab: \"col1\\tcol2\\n\"\n"),
+				),
+			},
+		},
+	})
+}
+
 func testAccFunctionUtilsYamlMerge_emptyDocs() string {
 	return `
 	locals {

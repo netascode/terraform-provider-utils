@@ -116,6 +116,48 @@ func TestYamlEncode_StringQuoting(t *testing.T) {
 			expected: "description: some text here\nname: alice\n",
 		},
 		{
+			name: "carriage return - issue #174",
+			input: map[string]interface{}{
+				"value": "foo\rbar",
+			},
+			expected: "value: \"foo\\rbar\"\n",
+		},
+		{
+			name: "horizontal tab - issue #174",
+			input: map[string]interface{}{
+				"value": "col1\tcol2",
+			},
+			expected: "value: \"col1\\tcol2\"\n",
+		},
+		{
+			name: "crlf in string - issue #174",
+			input: map[string]interface{}{
+				"value": "line1\r\nline2\n",
+			},
+			expected: "value: \"line1\\r\\nline2\\n\"\n",
+		},
+		{
+			name: "tab with newline - issue #174",
+			input: map[string]interface{}{
+				"value": "col1\tcol2\n",
+			},
+			expected: "value: \"col1\\tcol2\\n\"\n",
+		},
+		{
+			name: "hex control chars 0x0d 0x0a 0x09 - issue #174",
+			input: map[string]interface{}{
+				"value": "Login**\x0d\x0aLogin next line\x09end",
+			},
+			expected: "value: \"Login**\\r\\nLogin next line\\tend\"\n",
+		},
+		{
+			name: "NEL U+0085 - issue #174",
+			input: map[string]interface{}{
+				"value": "valend",
+			},
+			expected: "value: \"val\\u0085end\"\n",
+		},
+		{
 			name: "nested structures with mixed types",
 			input: map[string]interface{}{
 				"config": map[string]interface{}{
@@ -288,5 +330,53 @@ func TestYamlMerge_PreservesFirstDocOrder(t *testing.T) {
 	expected := "port: 8080\nhost: remotehost\nname: app\ndebug: true\n"
 	if encoded != expected {
 		t.Errorf("merge did not preserve first doc order:\nExpected:\n%s\nGot:\n%s", expected, encoded)
+	}
+}
+
+// TestYamlRoundtrip_ControlCharacters is a regression test for issue #174.
+// \r and \t were lost in v2.0.0 because the encoder chose block scalar style
+// for strings containing \n, and block scalars cannot represent CR or TAB.
+func TestYamlRoundtrip_ControlCharacters(t *testing.T) {
+	tests := []struct {
+		name     string
+		original string
+	}{
+		{name: "carriage return with newline", original: "motd banner:\r\nNo message today\n"},
+		{name: "horizontal tab with newline", original: "login banner: new\ttest\n"},
+		{name: "hex CR LF TAB", original: "Login**\x0d\x0aLogin next line\x09end"},
+		{name: "cr only", original: "text\r"},
+		{name: "tab only", original: "col1\tcol2"},
+		{name: "crlf banner motd", original: "MOTD***\x0D\x0AMOTD next\x09line"},
+		{name: "NEL U+0085", original: "valend"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := map[string]interface{}{"value": tt.original}
+
+			encoded, err := yamlEncode(data)
+			if err != nil {
+				t.Fatalf("yamlEncode() error = %v", err)
+			}
+
+			decoded, err := yamlDecode(encoded)
+			if err != nil {
+				t.Fatalf("yamlDecode() error = %v, encoded YAML: %q", err, encoded)
+			}
+
+			m, ok := toNativeMap(decoded).(map[string]any)
+			if !ok {
+				t.Fatalf("expected map[string]any from decoded, got %T", decoded)
+			}
+
+			actual, ok := m["value"].(string)
+			if !ok {
+				t.Fatalf("expected string value, got %T", m["value"])
+			}
+
+			if actual != tt.original {
+				t.Errorf("control character lost in round-trip:\nOriginal: %q\nEncoded YAML: %q\nDecoded:  %q", tt.original, encoded, actual)
+			}
+		})
 	}
 }

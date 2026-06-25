@@ -440,6 +440,49 @@ func needsScientificNotationQuoting(s string) bool {
 	return i > expStart && i == len(s) // at least one exponent digit, nothing else after
 }
 
+// needsControlCharQuoting reports whether s contains control characters that
+// would be lost or corrupted if encoded as a plain or block scalar:
+//   - C0 controls except LF (0x00–0x1F, excluding 0x0A)
+//   - NEL (0x85): YAML 1.2 treats this as a line break
+//
+// Byte-level iteration is intentional: 0x85 appears as a raw byte or as the
+// second byte of the valid UTF-8 sequence for U+0085 (0xC2 0x85); both cases
+// must trigger double-quoting.
+func needsControlCharQuoting(s string) bool {
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b < 0x20 && b != '\n' {
+			return true
+		}
+		if b == 0x85 { // NEL
+			return true
+		}
+	}
+	return false
+}
+
+// needsDoubleQuoting reports whether s must be emitted as a YAML double-quoted
+// scalar. It combines the control-character and scientific-notation checks in a
+// single O(n) byte scan for the common case: control chars are caught with an
+// early return, and 'e'/'E' presence is tracked so the more expensive
+// scientific-notation parse runs only when necessary.
+func needsDoubleQuoting(s string) bool {
+	hasEE := false
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b < 0x20 && b != '\n' {
+			return true
+		}
+		if b == 0x85 { // NEL
+			return true
+		}
+		if b == 'e' || b == 'E' {
+			hasEE = true
+		}
+	}
+	return hasEE && needsScientificNotationQuoting(s)
+}
+
 // doubleQuotedString forces double-quoted YAML output via goccy/go-yaml's BytesMarshaler
 // interface. The MarshalYAML bytes are parsed directly as a YAML document, producing a
 // StringNode with DoubleQuoteType that bypasses the encoder's quoting heuristic.
