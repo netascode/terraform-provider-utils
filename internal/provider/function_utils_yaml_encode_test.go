@@ -224,6 +224,33 @@ func TestYamlEncodeFunction_MapKeySort(t *testing.T) {
 	})
 }
 
+// TestYamlEncodeFunction_ScientificNotationString verifies that strings matching
+// scientific notation patterns are quoted in the output (issue #155 regression test).
+func TestYamlEncodeFunction_ScientificNotationString(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				output "test_sci_large" {
+					value = provider::utils::yaml_encode({secret_key = "23211e010211"})
+				}
+				output "test_sci_small" {
+					value = provider::utils::yaml_encode({val = "1e10"})
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test_sci_large", "secret_key: \"23211e010211\"\n"),
+					resource.TestCheckOutput("test_sci_small", "val: \"1e10\"\n"),
+				),
+			},
+		},
+	})
+}
+
 // TestYamlEncode_UnitFormats tests the yamlEncode helper directly for exact output verification
 func TestYamlEncode_UnitFormats(t *testing.T) {
 	tests := []struct {
@@ -285,6 +312,16 @@ func TestYamlEncode_UnitFormats(t *testing.T) {
 			name:     "string_quoting_empty",
 			input:    map[string]any{"val": ""},
 			expected: "val: \"\"\n",
+		},
+		{
+			name:     "string_quoting_scientific_notation_large",
+			input:    map[string]any{"val": "23211e010211"},
+			expected: "val: \"23211e010211\"\n",
+		},
+		{
+			name:     "string_quoting_scientific_notation_small",
+			input:    map[string]any{"val": "1e10"},
+			expected: "val: \"1e10\"\n",
 		},
 	}
 

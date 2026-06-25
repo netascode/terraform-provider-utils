@@ -143,6 +143,9 @@ func toMapSlice(v any) any {
 		}
 		return result
 	default:
+		if s, ok := v.(string); ok && needsScientificNotationQuoting(s) {
+			return doubleQuotedString(s)
+		}
 		return v
 	}
 }

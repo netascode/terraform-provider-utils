@@ -32,7 +32,28 @@ func TestYamlEncode_StringQuoting(t *testing.T) {
 			input: map[string]interface{}{
 				"secret_key": "23211e010211",
 			},
-			expected: "secret_key: 23211e010211\n",
+			expected: "secret_key: \"23211e010211\"\n",
+		},
+		{
+			name: "scientific notation - small valid float64",
+			input: map[string]interface{}{
+				"val": "1e10",
+			},
+			expected: "val: \"1e10\"\n",
+		},
+		{
+			name: "scientific notation - with decimal",
+			input: map[string]interface{}{
+				"val": "2.5E10",
+			},
+			expected: "val: \"2.5E10\"\n",
+		},
+		{
+			name: "scientific notation - negative exponent",
+			input: map[string]interface{}{
+				"val": "1e-5",
+			},
+			expected: "val: \"1e-5\"\n",
 		},
 		{
 			name: "leading decimal point",
@@ -107,7 +128,7 @@ func TestYamlEncode_StringQuoting(t *testing.T) {
 					"null_value": nil,
 				},
 			},
-			expected: "config:\n  api_key: 23211e010211\n  enabled: true\n  list:\n    - \"true\"\n    - 42\n    - normal\n  name: service\n  null_value: null\n  port: 8080\n  ratio: \"0.10\"\n",
+			expected: "config:\n  api_key: \"23211e010211\"\n  enabled: true\n  list:\n    - \"true\"\n    - 42\n    - normal\n  name: service\n  null_value: null\n  port: 8080\n  ratio: \"0.10\"\n",
 		},
 	}
 

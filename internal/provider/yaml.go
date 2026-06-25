@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	goyaml "github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
@@ -408,6 +409,44 @@ func deepCopy(v any) any {
 	default:
 		return v
 	}
+}
+
+// needsScientificNotationQuoting reports whether s is an integer-mantissa scientific
+// notation value (e.g. "1e10", "1e-5", "23211e010211") that goccy/go-yaml does not
+// quote automatically, causing downstream YAML parsers to misinterpret it as a float.
+func needsScientificNotationQuoting(s string) bool {
+	if !strings.ContainsAny(s, "eE") {
+		return false // fast path: no 'e'/'E' means it can't be scientific notation
+	}
+	i := 0
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	start := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == start || i >= len(s) || (s[i] != 'e' && s[i] != 'E') {
+		return false // no digits before 'e', or no 'e'/'E' found
+	}
+	i++ // skip 'e'/'E'
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	expStart := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i > expStart && i == len(s) // at least one exponent digit, nothing else after
+}
+
+// doubleQuotedString forces double-quoted YAML output via goccy/go-yaml's BytesMarshaler
+// interface. The MarshalYAML bytes are parsed directly as a YAML document, producing a
+// StringNode with DoubleQuoteType that bypasses the encoder's quoting heuristic.
+type doubleQuotedString string
+
+func (s doubleQuotedString) MarshalYAML() ([]byte, error) {
+	return []byte(strconv.Quote(string(s))), nil
 }
 
 // yamlEncode marshals a native Go value to a YAML string using github.com/goccy/go-yaml.

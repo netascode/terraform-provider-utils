@@ -10,6 +10,7 @@ description: |-
 ## Unreleased
 
 - Fix `yaml_merge` data source and function to silently skip empty or comment-only YAML documents instead of returning an error
+- Fix `yaml_merge` and `yaml_encode` losing string type for integer-form scientific notation values (e.g. `1e10`, `23211e010211`) that were emitted unquoted, causing downstream YAML parsers to interpret them as numbers
 
 ## 2.0.0
 

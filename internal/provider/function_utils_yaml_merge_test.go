@@ -63,6 +63,36 @@ func TestYamlMergeFunction_EmptyDocuments(t *testing.T) {
 	})
 }
 
+// TestYamlMergeFunction_ScientificNotationString verifies that strings matching
+// scientific notation patterns survive the decode→merge→encode round-trip with
+// their type intact (issue #155 regression test).
+func TestYamlMergeFunction_ScientificNotationString(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					input = <<-EOT
+					secret_key: "23211e010211"
+					api_key: "1e10"
+					EOT
+				}
+				output "test" {
+					value = provider::utils::yaml_merge([local.input])
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", "secret_key: \"23211e010211\"\napi_key: \"1e10\"\n"),
+				),
+			},
+		},
+	})
+}
+
 func testAccFunctionUtilsYamlMerge_emptyDocs() string {
 	return `
 	locals {
