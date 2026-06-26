@@ -50,6 +50,7 @@ jobs:
           - "1.0.*"
           - "1.5.*"
           - "1.8.*"
+          - "1.15.*"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
