@@ -513,7 +513,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	// 2. Global model templates
 	MergeMaps(globalModelTmpl, merged, true)
 	// 3. Global configuration
-	MergeMaps(getMapVal(rctx.global, "configuration"), merged, true)
+	MergeMaps(deepCopy(getMapVal(rctx.global, "configuration")), merged, true)
 	// 4. Group file templates
 	for _, ft := range groupFileTmpls {
 		MergeMaps(ft, merged, true)
@@ -524,7 +524,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	}
 	// 6. Group configurations
 	for _, gc := range groupConfigs {
-		MergeMaps(gc, merged, true)
+		MergeMaps(deepCopy(gc), merged, true)
 	}
 	// 7. Device file templates
 	for _, ft := range deviceFileTmpls {
@@ -777,7 +777,7 @@ func applyInterfaceGroupToItem(item map[string]any, igConfigs map[string]map[str
 	merged := make(map[string]any)
 	for _, g := range groups {
 		if cfg, ok := igConfigs[g]; ok {
-			MergeMaps(cfg, merged, true)
+			MergeMaps(deepCopy(cfg), merged, true)
 		}
 	}
 	MergeMaps(item, merged, true)

@@ -1,3 +1,7 @@
+## Unreleased
+
+- Fix `render_device_configs` function corrupting shared configuration when nested maps (e.g. `ip`, `ntp`) appear in both a source config (interface group, device group, or global) and a higher-precedence config — causing later devices or interfaces to inherit values from earlier ones
+
 ## 2.0.1
 
 - Fix `yaml_merge` data source and function to silently skip empty or comment-only YAML documents instead of returning an error

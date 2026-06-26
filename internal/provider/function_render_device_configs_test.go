@@ -443,6 +443,206 @@ func testAccRenderDeviceConfigs_interfaceGroups() string {
 	`
 }
 
+func TestRenderDeviceConfigsFunction_InterfaceGroupsNestedMapIsolation(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupsNestedMapIsolation(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("eth0_ip", "172.25.6.233/31"),
+					resource.TestCheckOutput("eth1_ip", "172.25.6.231/31"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupsNestedMapIsolation() string {
+	return `
+	locals {
+		model = {
+			nxos = {
+				interface_groups = [
+					{
+						name = "fabric"
+						configuration = {
+							mtu = 9216
+							ip = {
+								redirects = false
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "spine1"
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										id               = "1/33"
+										interface_groups = ["fabric"]
+										ip = {
+											address = "172.25.6.233/31"
+										}
+									},
+									{
+										id               = "1/34"
+										interface_groups = ["fabric"]
+										ip = {
+											address = "172.25.6.231/31"
+										}
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device  = local.result.raw.nxos.devices[0]
+		eths    = local.device.configuration.interfaces.ethernets
+	}
+
+	output "eth0_ip" {
+		value = local.eths[0].ip.address
+	}
+	output "eth1_ip" {
+		value = local.eths[1].ip.address
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_GlobalConfigIsolation(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_globalConfigIsolation(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("spine1_ntp_server", "172.0.0.1"),
+					resource.TestCheckOutput("spine2_ntp_server", "10.0.0.1"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_globalConfigIsolation() string {
+	return `
+	locals {
+		model = {
+			nxos = {
+				global = {
+					configuration = {
+						ntp = {
+							server = "10.0.0.1"
+						}
+					}
+				}
+				devices = [
+					{
+						name = "spine1"
+						configuration = {
+							ntp = {
+								server = "172.0.0.1"
+							}
+						}
+					},
+					{
+						name = "spine2"
+						configuration = {}
+					}
+				]
+			}
+		}
+
+		result  = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		devices = local.result.raw.nxos.devices
+	}
+
+	output "spine1_ntp_server" {
+		value = local.devices[0].configuration.ntp.server
+	}
+	output "spine2_ntp_server" {
+		value = local.devices[1].configuration.ntp.server
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_GroupConfigIsolation(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_groupConfigIsolation(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("spine1_ntp_server", "172.0.0.1"),
+					resource.TestCheckOutput("spine2_ntp_server", "10.0.0.1"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_groupConfigIsolation() string {
+	return `
+	locals {
+		model = {
+			nxos = {
+				device_groups = [
+					{
+						name    = "spines"
+						devices = ["spine1", "spine2"]
+						configuration = {
+							ntp = {
+								server = "10.0.0.1"
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "spine1"
+						configuration = {
+							ntp = {
+								server = "172.0.0.1"
+							}
+						}
+					},
+					{
+						name = "spine2"
+						configuration = {}
+					}
+				]
+			}
+		}
+
+		result  = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		devices = local.result.raw.nxos.devices
+	}
+
+	output "spine1_ntp_server" {
+		value = local.devices[0].configuration.ntp.server
+	}
+	output "spine2_ntp_server" {
+		value = local.devices[1].configuration.ntp.server
+	}
+	`
+}
+
 func TestRenderDeviceConfigsFunction_CliTemplates(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
