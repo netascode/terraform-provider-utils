@@ -968,7 +968,8 @@ func stripNulls(v any) any {
 	}
 }
 
-// buildProviderDevices extracts name/url/managed from all devices for provider configuration.
+// buildProviderDevices extracts name/managed and connection fields (url/host/protocol)
+// from all devices for provider configuration.
 func buildProviderDevices(model map[string]any, arch string, defaultManaged bool) []any {
 	archConfig := getMapVal(model, arch)
 	devices := getSliceVal(archConfig, "devices")
@@ -982,8 +983,11 @@ func buildProviderDevices(model map[string]any, arch string, defaultManaged bool
 			"name":    getStringVal(dm, "name", ""),
 			"managed": getBoolVal(dm, "managed", defaultManaged),
 		}
-		if url, ok := dm["url"]; ok && url != nil {
-			pd["url"] = url
+		// Copy optional connection fields (omit if not present)
+		for _, field := range []string{"url", "host", "protocol"} {
+			if v, ok := dm[field]; ok && v != nil {
+				pd[field] = v
+			}
 		}
 		result = append(result, pd)
 	}
