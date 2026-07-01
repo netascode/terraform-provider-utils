@@ -7,7 +7,7 @@ description: |-
 
 # Changelog
 
-## Unreleased
+## 2.0.2
 
 - Fix `render_device_configs` function corrupting shared configuration when nested maps (e.g. `ip`, `ntp`) appear in both a source config (interface group, device group, or global) and a higher-precedence config — causing later devices or interfaces to inherit values from earlier ones
 - Fix `render_device_configs` dropping `host` and `protocol` from `provider_devices` — only `url` was forwarded, so devices declared with `host` (the non-deprecated connection field) had no connection target in the provider devices list
