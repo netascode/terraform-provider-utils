@@ -546,6 +546,9 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		applyDefaults(merged, rctx.defaultConfig)
 	}
 
+	// 4e3. Apply interface_group_policy (replace semantics)
+	applyInterfaceGroupPolicy(merged, device)
+
 	// 4f. Interface groups
 	igConfigs, err := resolveInterfaceGroupConfigs(rctx, ctyVars)
 	if err != nil {
@@ -717,6 +720,71 @@ func resolveInterfaceGroupConfigs(rctx *renderContext, vars map[string]cty.Value
 		}
 	}
 	return igConfigs, nil
+}
+
+// applyInterfaceGroupPolicy enforces merge/replace semantics for interface_groups
+// between device_group and device layers. Must be called after the merge cascade
+// but before applyInterfaceGroups.
+func applyInterfaceGroupPolicy(merged map[string]any, device map[string]any) {
+	devicePolicy := getStringVal(device, "interface_group_policy", "merge")
+	deviceConfig := getMapVal(device, "configuration")
+	deviceInterfaces := getMapVal(deviceConfig, "interfaces")
+
+	if devicePolicy == "merge" && len(deviceInterfaces) == 0 {
+		return
+	}
+
+	mergedInterfaces := getMapVal(merged, "interfaces")
+	if len(mergedInterfaces) == 0 {
+		return
+	}
+
+	for typeName, typeVal := range mergedInterfaces {
+		items, ok := typeVal.([]any)
+		if !ok {
+			continue
+		}
+		deviceTypeItems := getSliceVal(deviceInterfaces, typeName)
+
+		for i, itemRaw := range items {
+			itemMap := toMapStringAny(itemRaw)
+			if itemMap == nil {
+				continue
+			}
+
+			effectivePolicy := getStringVal(itemMap, "interface_group_policy", devicePolicy)
+			if effectivePolicy != "replace" {
+				continue
+			}
+
+			if deviceGroups, found := deviceOnlyInterfaceGroups(itemMap, deviceTypeItems); found {
+				if deviceGroups == nil {
+					delete(itemMap, "interface_groups")
+				} else {
+					itemMap["interface_groups"] = deviceGroups
+				}
+				items[i] = itemMap
+			}
+		}
+		mergedInterfaces[typeName] = items
+	}
+	merged["interfaces"] = mergedInterfaces
+}
+
+// deviceOnlyInterfaceGroups returns the interface_groups list from the device-only
+// config item that matches the given merged item (by primitive field equality).
+// Returns (groups, true) if a matching device-only item exists, (nil, false) otherwise.
+func deviceOnlyInterfaceGroups(mergedItem map[string]any, deviceItems []any) ([]any, bool) {
+	for _, diRaw := range deviceItems {
+		di := toMapStringAny(diRaw)
+		if di == nil {
+			continue
+		}
+		if itemsWouldMerge(mergedItem, di) {
+			return getSliceVal(di, "interface_groups"), true
+		}
+	}
+	return nil, false
 }
 
 func applyInterfaceGroups(config map[string]any, igConfigs map[string]map[string]any) {

@@ -1304,3 +1304,485 @@ EOT
 	}
 	`
 }
+
+func TestRenderDeviceConfigsFunction_InterfaceGroupPolicyReplace(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupPolicyReplace(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("eth1_mtu", "9216"),
+					resource.TestCheckOutput("eth1_description", "TRUNK_VIA_GROUP"),
+					resource.TestCheckOutput("eth2_mtu", "1500"),
+					resource.TestCheckOutput("eth2_description", "ACCESS_VIA_GROUP"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupPolicyReplace() string {
+	return `
+	locals {
+		model = {
+			iosxe = {
+				interface_groups = [
+					{
+						name = "access"
+						configuration = {
+							mtu = 1500
+							description = "ACCESS_VIA_GROUP"
+						}
+					},
+					{
+						name = "trunk"
+						configuration = {
+							mtu = 9216
+							description = "TRUNK_VIA_GROUP"
+						}
+					}
+				]
+				device_groups = [
+					{
+						name    = "switches"
+						devices = ["switch1"]
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["access"]
+									},
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/2"
+										interface_groups = ["access"]
+									}
+								]
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "switch1"
+						interface_group_policy = "replace"
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["trunk"]
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device = local.result.raw.iosxe.devices[0]
+		eth1   = [for e in local.device.configuration.interfaces.ethernets : e if e.type == "GigabitEthernet" && e.id == "1/0/1"][0]
+		eth2   = [for e in local.device.configuration.interfaces.ethernets : e if e.type == "GigabitEthernet" && e.id == "1/0/2"][0]
+	}
+
+	output "eth1_mtu" {
+		value = tostring(local.eth1.mtu)
+	}
+	output "eth1_description" {
+		value = local.eth1.description
+	}
+	output "eth2_mtu" {
+		value = tostring(local.eth2.mtu)
+	}
+	output "eth2_description" {
+		value = local.eth2.description
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_InterfaceGroupPolicyMergeDefault(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupPolicyMergeDefault(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("eth1_mtu", "9216"),
+					resource.TestCheckOutput("eth1_shutdown", "true"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupPolicyMergeDefault() string {
+	return `
+	locals {
+		model = {
+			iosxe = {
+				interface_groups = [
+					{
+						name = "base"
+						configuration = {
+							shutdown = true
+						}
+					},
+					{
+						name = "fabric"
+						configuration = {
+							mtu = 9216
+						}
+					}
+				]
+				device_groups = [
+					{
+						name    = "switches"
+						devices = ["switch1"]
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["base"]
+									}
+								]
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "switch1"
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["fabric"]
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device = local.result.raw.iosxe.devices[0]
+		eth1   = local.device.configuration.interfaces.ethernets[0]
+	}
+
+	output "eth1_mtu" {
+		value = tostring(local.eth1.mtu)
+	}
+	output "eth1_shutdown" {
+		value = tostring(local.eth1.shutdown)
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_InterfaceGroupPolicyPerInterface(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupPolicyPerInterface(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("eth1_mtu", "9216"),
+					resource.TestCheckOutput("eth2_mtu", "1500"),
+					resource.TestCheckOutput("eth2_description", "FROM_ACCESS_GROUP"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupPolicyPerInterface() string {
+	return `
+	locals {
+		model = {
+			iosxe = {
+				interface_groups = [
+					{
+						name = "access"
+						configuration = {
+							mtu = 1500
+							shutdown = true
+							description = "FROM_ACCESS_GROUP"
+						}
+					},
+					{
+						name = "trunk"
+						configuration = {
+							mtu = 9216
+						}
+					},
+					{
+						name = "monitor"
+						configuration = {
+							mtu = 1500
+							shutdown = false
+						}
+					}
+				]
+				device_groups = [
+					{
+						name    = "switches"
+						devices = ["switch1"]
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["access"]
+									},
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/2"
+										interface_groups = ["access"]
+									}
+								]
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "switch1"
+						interface_group_policy = "replace"
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["trunk"]
+									},
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/2"
+										interface_group_policy = "merge"
+										interface_groups = ["monitor"]
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device = local.result.raw.iosxe.devices[0]
+		eth1   = [for e in local.device.configuration.interfaces.ethernets : e if e.type == "GigabitEthernet" && e.id == "1/0/1"][0]
+		eth2   = [for e in local.device.configuration.interfaces.ethernets : e if e.type == "GigabitEthernet" && e.id == "1/0/2"][0]
+	}
+
+	output "eth1_mtu" {
+		value = tostring(local.eth1.mtu)
+	}
+	output "eth2_mtu" {
+		value = tostring(local.eth2.mtu)
+	}
+	output "eth2_description" {
+		value = local.eth2.description
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_InterfaceGroupPolicyInheritOnly(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupPolicyInheritOnly(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("eth1_mtu", "9216"),
+					resource.TestCheckOutput("eth2_description", "ACCESS_PORT"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupPolicyInheritOnly() string {
+	return `
+	locals {
+		model = {
+			iosxe = {
+				interface_groups = [
+					{
+						name = "access"
+						configuration = {
+							description = "ACCESS_PORT"
+						}
+					},
+					{
+						name = "trunk"
+						configuration = {
+							mtu = 9216
+						}
+					}
+				]
+				device_groups = [
+					{
+						name    = "switches"
+						devices = ["switch1"]
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["access"]
+									},
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/2"
+										interface_groups = ["access"]
+									}
+								]
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "switch1"
+						interface_group_policy = "replace"
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["trunk"]
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device = local.result.raw.iosxe.devices[0]
+		eth1   = [for e in local.device.configuration.interfaces.ethernets : e if e.type == "GigabitEthernet" && e.id == "1/0/1"][0]
+		eth2   = [for e in local.device.configuration.interfaces.ethernets : e if e.type == "GigabitEthernet" && e.id == "1/0/2"][0]
+	}
+
+	output "eth1_mtu" {
+		value = tostring(local.eth1.mtu)
+	}
+	output "eth2_description" {
+		value = local.eth2.description
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_InterfaceGroupPolicyEmptyList(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupPolicyEmptyList(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("eth1_has_mtu", "false"),
+					resource.TestCheckOutput("eth1_description", "STRIPPED"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupPolicyEmptyList() string {
+	return `
+	locals {
+		model = {
+			iosxe = {
+				interface_groups = [
+					{
+						name = "access"
+						configuration = {
+							mtu = 1500
+							description = "ACCESS_PORT"
+						}
+					}
+				]
+				device_groups = [
+					{
+						name    = "switches"
+						devices = ["switch1"]
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = ["access"]
+									}
+								]
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "switch1"
+						interface_group_policy = "replace"
+						configuration = {
+							interfaces = {
+								ethernets = [
+									{
+										type = "GigabitEthernet"
+										id   = "1/0/1"
+										interface_groups = []
+										description = "STRIPPED"
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device = local.result.raw.iosxe.devices[0]
+		eth1   = local.device.configuration.interfaces.ethernets[0]
+	}
+
+	output "eth1_has_mtu" {
+		value = tostring(can(local.eth1.mtu))
+	}
+	output "eth1_description" {
+		value = local.eth1.description
+	}
+	`
+}
