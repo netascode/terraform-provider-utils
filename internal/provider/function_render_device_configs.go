@@ -753,18 +753,46 @@ func applyInterfaceGroupPolicy(merged map[string]any, device map[string]any) {
 			}
 
 			effectivePolicy := getStringVal(itemMap, "interface_group_policy", devicePolicy)
-			if effectivePolicy != "replace" {
-				continue
+			if effectivePolicy == "replace" {
+				if deviceGroups, found := deviceOnlyInterfaceGroups(itemMap, deviceTypeItems); found {
+					if deviceGroups == nil {
+						delete(itemMap, "interface_groups")
+					} else {
+						itemMap["interface_groups"] = deviceGroups
+					}
+				}
 			}
 
-			if deviceGroups, found := deviceOnlyInterfaceGroups(itemMap, deviceTypeItems); found {
-				if deviceGroups == nil {
-					delete(itemMap, "interface_groups")
-				} else {
-					itemMap["interface_groups"] = deviceGroups
+			// Recurse into subinterfaces with device-level policy
+			if subsRaw, ok := itemMap["subinterfaces"]; ok {
+				if subs, ok := subsRaw.([]any); ok {
+					var deviceSubs []any
+					if di := findMatchingDeviceItem(itemMap, deviceTypeItems); di != nil {
+						deviceSubs = getSliceVal(di, "subinterfaces")
+					}
+					for j, subRaw := range subs {
+						subMap := toMapStringAny(subRaw)
+						if subMap == nil {
+							continue
+						}
+						subPolicy := getStringVal(subMap, "interface_group_policy", devicePolicy)
+						if subPolicy != "replace" {
+							continue
+						}
+						if deviceGroups, found := deviceOnlyInterfaceGroups(subMap, deviceSubs); found {
+							if deviceGroups == nil {
+								delete(subMap, "interface_groups")
+							} else {
+								subMap["interface_groups"] = deviceGroups
+							}
+							subs[j] = subMap
+						}
+					}
+					itemMap["subinterfaces"] = subs
 				}
-				items[i] = itemMap
 			}
+
+			items[i] = itemMap
 		}
 		mergedInterfaces[typeName] = items
 	}
@@ -785,6 +813,21 @@ func deviceOnlyInterfaceGroups(mergedItem map[string]any, deviceItems []any) ([]
 		}
 	}
 	return nil, false
+}
+
+// findMatchingDeviceItem returns the device-only item that matches the given
+// merged item by primitive field equality, or nil if no match is found.
+func findMatchingDeviceItem(mergedItem map[string]any, deviceItems []any) map[string]any {
+	for _, diRaw := range deviceItems {
+		di := toMapStringAny(diRaw)
+		if di == nil {
+			continue
+		}
+		if itemsWouldMerge(mergedItem, di) {
+			return di
+		}
+	}
+	return nil
 }
 
 func applyInterfaceGroups(config map[string]any, igConfigs map[string]map[string]any) {

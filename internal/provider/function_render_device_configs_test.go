@@ -1786,3 +1786,106 @@ func testAccRenderDeviceConfigs_interfaceGroupPolicyEmptyList() string {
 	}
 	`
 }
+
+func TestRenderDeviceConfigsFunction_InterfaceGroupPolicySubinterface(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_interfaceGroupPolicySubinterface(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("sub10_mtu", "9216"),
+					resource.TestCheckOutput("sub20_description", "BASE_VIA_GROUP"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_interfaceGroupPolicySubinterface() string {
+	return `
+	locals {
+		model = {
+			iosxe = {
+				interface_groups = [
+					{
+						name = "base_sub"
+						configuration = {
+							description = "BASE_VIA_GROUP"
+							mtu = 1500
+						}
+					},
+					{
+						name = "fabric_sub"
+						configuration = {
+							mtu = 9216
+						}
+					}
+				]
+				device_groups = [
+					{
+						name    = "routers"
+						devices = ["router1"]
+						configuration = {
+							interfaces = {
+								port_channels = [
+									{
+										id = 1
+										subinterfaces = [
+											{
+												id = "10"
+												interface_groups = ["base_sub"]
+											},
+											{
+												id = "20"
+												interface_groups = ["base_sub"]
+											}
+										]
+									}
+								]
+							}
+						}
+					}
+				]
+				devices = [
+					{
+						name = "router1"
+						interface_group_policy = "replace"
+						configuration = {
+							interfaces = {
+								port_channels = [
+									{
+										id = 1
+										subinterfaces = [
+											{
+												id = "10"
+												interface_groups = ["fabric_sub"]
+											}
+										]
+									}
+								]
+							}
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+		device = local.result.raw.iosxe.devices[0]
+		pc1    = [for p in local.device.configuration.interfaces.port_channels : p if p.id == 1][0]
+		sub10  = [for s in local.pc1.subinterfaces : s if s.id == "10"][0]
+		sub20  = [for s in local.pc1.subinterfaces : s if s.id == "20"][0]
+	}
+
+	output "sub10_mtu" {
+		value = tostring(local.sub10.mtu)
+	}
+	output "sub20_description" {
+		value = local.sub20.description
+	}
+	`
+}
