@@ -440,11 +440,32 @@ func needsScientificNotationQuoting(s string) bool {
 	return i > expStart && i == len(s) // at least one exponent digit, nothing else after
 }
 
+// needsLeadingZeroQuoting reports whether s is a leading-zero all-digit decimal
+// string (e.g. "030752180500", "007") that goccy/go-yaml emits bare because it
+// isn't a canonical integer representation, but that downstream YAML 1.1 decoders
+// (including Terraform's built-in yamldecode) parse as a base-10 integer, silently
+// dropping the leading zero(s) and corrupting values such as Cisco type-7 passwords.
+func needsLeadingZeroQuoting(s string) bool {
+	i := 0
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	if i >= len(s) || s[i] != '0' {
+		return false // fast path: no leading zero, not our concern
+	}
+	digitsStart := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i == len(s) && i-digitsStart > 1
+}
+
 // needsDoubleQuoting reports whether s must be emitted as a YAML double-quoted
-// scalar. It combines the control-character and scientific-notation checks in a
-// single O(n) byte scan for the common case: control chars are caught with an
-// early return, and 'e'/'E' presence is tracked so the more expensive
-// scientific-notation parse runs only when necessary.
+// scalar. It combines the control-character, scientific-notation, and
+// leading-zero checks in a single O(n) byte scan for the common case: control
+// chars are caught with an early return, and 'e'/'E' presence is tracked so the
+// more expensive scientific-notation parse runs only when necessary. The
+// leading-zero check has its own fast path (most strings don't start with '0').
 func needsDoubleQuoting(s string) bool {
 	hasEE := false
 	for i := 0; i < len(s); i++ {
@@ -459,7 +480,10 @@ func needsDoubleQuoting(s string) bool {
 			hasEE = true
 		}
 	}
-	return hasEE && needsScientificNotationQuoting(s)
+	if hasEE && needsScientificNotationQuoting(s) {
+		return true
+	}
+	return needsLeadingZeroQuoting(s)
 }
 
 // doubleQuotedString forces double-quoted YAML output via goccy/go-yaml's BytesMarshaler

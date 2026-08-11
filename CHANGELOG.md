@@ -1,3 +1,7 @@
+## Unreleased
+
+- Fix `yaml_merge` and `yaml_encode` losing string type for leading-zero all-digit strings (e.g. `030752180500`) that were emitted unquoted, causing downstream YAML parsers to interpret them as numbers and drop the leading zero (e.g. Cisco type-7 passwords)
+
 ## 2.0.2
 
 - Fix `render_device_configs` function corrupting shared configuration when nested maps (e.g. `ip`, `ntp`) appear in both a source config (interface group, device group, or global) and a higher-precedence config — causing later devices or interfaces to inherit values from earlier ones
