@@ -7,7 +7,7 @@ description: |-
 
 # Changelog
 
-## Unreleased
+## 2.0.3
 
 - Fix `yaml_merge` and `yaml_encode` losing string type for leading-zero all-digit strings (e.g. `030752180500`) that were emitted unquoted, causing downstream YAML parsers to interpret them as numbers and drop the leading zero (e.g. Cisco type-7 passwords)
 
