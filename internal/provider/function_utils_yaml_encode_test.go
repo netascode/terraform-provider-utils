@@ -251,6 +251,41 @@ func TestYamlEncodeFunction_ScientificNotationString(t *testing.T) {
 	})
 }
 
+// TestYamlEncodeFunction_LeadingZeroString verifies that leading-zero all-digit
+// strings are quoted in the output and round-trip through yamldecode without losing
+// the leading zero or the string type (issue #182 regression test).
+func TestYamlEncodeFunction_LeadingZeroString(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					original = "030752180500"
+				}
+				output "encoded_yaml" {
+					value = provider::utils::yaml_encode({password = local.original})
+				}
+				output "roundtrip_value" {
+					value = yamldecode(provider::utils::yaml_encode({password = local.original}))["password"]
+				}
+				output "roundtrip_is_corrupted" {
+					value = tostring(yamldecode(provider::utils::yaml_encode({password = local.original}))["password"]) != local.original
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("encoded_yaml", "password: \"030752180500\"\n"),
+					resource.TestCheckOutput("roundtrip_value", "030752180500"),
+					resource.TestCheckOutput("roundtrip_is_corrupted", "false"),
+				),
+			},
+		},
+	})
+}
+
 // TestYamlEncode_UnitFormats tests the yamlEncode helper directly for exact output verification
 func TestYamlEncode_UnitFormats(t *testing.T) {
 	tests := []struct {
@@ -322,6 +357,11 @@ func TestYamlEncode_UnitFormats(t *testing.T) {
 			name:     "string_quoting_scientific_notation_small",
 			input:    map[string]any{"val": "1e10"},
 			expected: "val: \"1e10\"\n",
+		},
+		{
+			name:     "string_quoting_leading_zero_all_digit",
+			input:    map[string]any{"password": "030752180500"},
+			expected: "password: \"030752180500\"\n",
 		},
 	}
 

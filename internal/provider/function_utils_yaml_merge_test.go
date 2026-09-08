@@ -93,6 +93,35 @@ func TestYamlMergeFunction_ScientificNotationString(t *testing.T) {
 	})
 }
 
+// TestYamlMergeFunction_LeadingZeroString verifies that leading-zero all-digit
+// strings (e.g. Cisco type-7 passwords) survive the decode→merge→encode
+// round-trip with their type and leading zero intact (issue #182 regression test).
+func TestYamlMergeFunction_LeadingZeroString(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					input = <<-EOT
+					password: "030752180500"
+					EOT
+				}
+				output "test" {
+					value = provider::utils::yaml_merge([local.input])
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("test", "password: \"030752180500\"\n"),
+				),
+			},
+		},
+	})
+}
+
 // TestYamlMergeFunction_ControlCharacters verifies that \r, \t, and other C0
 // control characters survive the YAML decode → merge → encode round-trip.
 // This is a regression test for issue #174 where v2.0.0 lost these characters

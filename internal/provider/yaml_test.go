@@ -92,6 +92,34 @@ func TestYamlEncode_StringQuoting(t *testing.T) {
 			expected: "number: \"12345\"\n",
 		},
 		{
+			name: "leading-zero all-digit string - issue #182",
+			input: map[string]interface{}{
+				"password": "030752180500",
+			},
+			expected: "password: \"030752180500\"\n",
+		},
+		{
+			name: "leading-zero all-digit string - short",
+			input: map[string]interface{}{
+				"value": "007",
+			},
+			expected: "value: \"007\"\n",
+		},
+		{
+			name: "leading-zero all-digit string - all zeros",
+			input: map[string]interface{}{
+				"value": "00",
+			},
+			expected: "value: \"00\"\n",
+		},
+		{
+			name: "hex letters - not numeric, stays bare",
+			input: map[string]interface{}{
+				"value": "110A1016141D",
+			},
+			expected: "value: 110A1016141D\n",
+		},
+		{
 			name: "actual numbers - no quoting",
 			input: map[string]interface{}{
 				"int_val":   42,
