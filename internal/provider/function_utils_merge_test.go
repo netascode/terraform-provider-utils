@@ -109,6 +109,37 @@ func TestMergeFunction_InvalidInputs(t *testing.T) {
 	})
 }
 
+// TestMergeFunction_ShapeConflict verifies that merging a map and a list at the
+// same attribute path is rejected instead of silently letting one side win.
+func TestMergeFunction_ShapeConflict(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					input1 = {
+						attr = {
+							nested = "value"
+						}
+					}
+					input2 = {
+						attr = ["value"]
+					}
+				}
+				output "test" {
+					value = jsonencode(provider::utils::merge([local.input1, local.input2]))
+				}
+				`,
+				ExpectError: regexp.MustCompile(`conflicting\s+types\s+for\s+attribute\s+"attr"`),
+			},
+		},
+	})
+}
+
 func testAccFunctionUtilsMerge_basic() string {
 	return `
 	locals {

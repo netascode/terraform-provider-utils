@@ -347,7 +347,9 @@ func TestYamlMerge_PreservesFirstDocOrder(t *testing.T) {
 		t.Fatalf("yamlDecode(doc2) error = %v", err)
 	}
 
-	MergeMaps(decoded2, decoded1, true)
+	if _, err := MergeMaps(decoded2, decoded1, true); err != nil {
+		t.Fatalf("MergeMaps() error = %v", err)
+	}
 
 	encoded, err := yamlEncode(decoded1)
 	if err != nil {

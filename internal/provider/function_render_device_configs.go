@@ -46,7 +46,9 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 		Summary: "Render per-device configurations from a hierarchical Network-as-Code model",
 		MarkdownDescription: "Processes a Network as Code model structure to produce fully rendered per-device configurations. " +
 			"Handles template evaluation, deep merging with precedence cascade (global → group → device), " +
-			"interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures.\n\n" +
+			"interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. " +
+			"Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; " +
+			"scalar values and types may otherwise differ across levels, with the more specific level taking precedence.\n\n" +
 			"~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.\n\n" +
 			"## Template Functions\n\n" +
 			"The following functions are available inside `${}` template expressions in model templates, " +
@@ -128,7 +130,10 @@ func (r RenderDeviceConfigsFunction) Run(ctx context.Context, req function.RunRe
 			return
 		}
 		if decoded != nil {
-			MergeMaps(decoded, merged, true)
+			if _, err := MergeMaps(decoded, merged, true); err != nil {
+				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging YAML string: "+err.Error()))
+				return
+			}
 		}
 	}
 
@@ -139,7 +144,10 @@ func (r RenderDeviceConfigsFunction) Run(ctx context.Context, req function.RunRe
 		return
 	}
 	if modelNative != nil {
-		MergeMaps(modelNative, merged, true)
+		if _, err := MergeMaps(modelNative, merged, true); err != nil {
+			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging model: "+err.Error()))
+			return
+		}
 	}
 
 	// 3. Defaults merge: extract user defaults from model, merge with module defaults
@@ -172,7 +180,10 @@ func (r RenderDeviceConfigsFunction) Run(ctx context.Context, req function.RunRe
 		}
 		// Merge user defaults on top of module defaults (user wins)
 		if userDefaultsVal != nil {
-			MergeMaps(userDefaultsVal, moduleDefaultsVal, true)
+			if _, err := MergeMaps(userDefaultsVal, moduleDefaultsVal, true); err != nil {
+				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging defaults: "+err.Error()))
+				return
+			}
 		}
 		// Convert to map[string]any
 		if d, ok := orderedMapToPlainMap(moduleDefaultsVal).(map[string]any); ok {
@@ -508,32 +519,50 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	merged := make(map[string]any)
 	// 1. Global file templates
 	for _, ft := range globalFileTmpls {
-		MergeMaps(ft, merged, true)
+		if _, err := MergeMaps(ft, merged, true); err != nil {
+			return nil, fmt.Errorf("global file templates: %w", err)
+		}
 	}
 	// 2. Global model templates
-	MergeMaps(globalModelTmpl, merged, true)
+	if _, err := MergeMaps(globalModelTmpl, merged, true); err != nil {
+		return nil, fmt.Errorf("global model templates: %w", err)
+	}
 	// 3. Global configuration
-	MergeMaps(deepCopy(getMapVal(rctx.global, "configuration")), merged, true)
+	if _, err := MergeMaps(deepCopy(getMapVal(rctx.global, "configuration")), merged, true); err != nil {
+		return nil, fmt.Errorf("global configuration: %w", err)
+	}
 	// 4. Group file templates
 	for _, ft := range groupFileTmpls {
-		MergeMaps(ft, merged, true)
+		if _, err := MergeMaps(ft, merged, true); err != nil {
+			return nil, fmt.Errorf("group file templates: %w", err)
+		}
 	}
 	// 5. Group model templates
 	for _, mt := range groupModelTmpls {
-		MergeMaps(mt, merged, true)
+		if _, err := MergeMaps(mt, merged, true); err != nil {
+			return nil, fmt.Errorf("group model templates: %w", err)
+		}
 	}
 	// 6. Group configurations
 	for _, gc := range groupConfigs {
-		MergeMaps(deepCopy(gc), merged, true)
+		if _, err := MergeMaps(deepCopy(gc), merged, true); err != nil {
+			return nil, fmt.Errorf("group configuration: %w", err)
+		}
 	}
 	// 7. Device file templates
 	for _, ft := range deviceFileTmpls {
-		MergeMaps(ft, merged, true)
+		if _, err := MergeMaps(ft, merged, true); err != nil {
+			return nil, fmt.Errorf("device file templates: %w", err)
+		}
 	}
 	// 8. Device model templates
-	MergeMaps(deviceModelTmpl, merged, true)
+	if _, err := MergeMaps(deviceModelTmpl, merged, true); err != nil {
+		return nil, fmt.Errorf("device model templates: %w", err)
+	}
 	// 9. Device configuration
-	MergeMaps(getMapVal(device, "configuration"), merged, true)
+	if _, err := MergeMaps(getMapVal(device, "configuration"), merged, true); err != nil {
+		return nil, fmt.Errorf("device configuration: %w", err)
+	}
 
 	// 4e. Final template pass
 	merged, err = templatePassOnMap(merged, ctyVars)
@@ -551,7 +580,9 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	if err != nil {
 		return nil, fmt.Errorf("interface groups: %w", err)
 	}
-	applyInterfaceGroups(merged, igConfigs)
+	if err := applyInterfaceGroups(merged, igConfigs); err != nil {
+		return nil, fmt.Errorf("interface groups: %w", err)
+	}
 
 	// 4g. CLI templates
 	cliTemplates, err := collectCliTemplates(rctx, device, deviceVars, ctyVars)
@@ -638,7 +669,9 @@ func processModelTemplates(rctx *renderContext, templateNames []string, vars map
 			return nil, fmt.Errorf("rendering model template %q: %w", name, err)
 		}
 		if m, ok := rendered.(map[string]any); ok {
-			MergeMaps(m, merged, true)
+			if _, err := MergeMaps(m, merged, true); err != nil {
+				return nil, fmt.Errorf("model template %q: %w", name, err)
+			}
 		}
 	}
 	return merged, nil
@@ -719,10 +752,10 @@ func resolveInterfaceGroupConfigs(rctx *renderContext, vars map[string]cty.Value
 	return igConfigs, nil
 }
 
-func applyInterfaceGroups(config map[string]any, igConfigs map[string]map[string]any) {
+func applyInterfaceGroups(config map[string]any, igConfigs map[string]map[string]any) error {
 	interfaces := getMapVal(config, "interfaces")
 	if len(interfaces) == 0 || len(igConfigs) == 0 {
-		return
+		return nil
 	}
 	for typeName, typeVal := range interfaces {
 		items, ok := typeVal.([]any)
@@ -742,16 +775,25 @@ func applyInterfaceGroups(config map[string]any, igConfigs map[string]map[string
 						if subMap == nil {
 							continue
 						}
-						subs[j] = applyInterfaceGroupToItem(subMap, igConfigs)
+						merged, err := applyInterfaceGroupToItem(subMap, igConfigs)
+						if err != nil {
+							return fmt.Errorf("interface %q subinterface: %w", typeName, err)
+						}
+						subs[j] = merged
 					}
 					itemMap["subinterfaces"] = subs
 				}
 			}
-			items[i] = applyInterfaceGroupToItem(itemMap, igConfigs)
+			merged, err := applyInterfaceGroupToItem(itemMap, igConfigs)
+			if err != nil {
+				return fmt.Errorf("interface %q: %w", typeName, err)
+			}
+			items[i] = merged
 		}
 		interfaces[typeName] = items
 	}
 	config["interfaces"] = interfaces
+	return nil
 }
 
 // toMapStringAny converts *OrderedMap or map[string]any to map[string]any.
@@ -769,19 +811,23 @@ func toMapStringAny(v any) map[string]any {
 	return nil
 }
 
-func applyInterfaceGroupToItem(item map[string]any, igConfigs map[string]map[string]any) map[string]any {
+func applyInterfaceGroupToItem(item map[string]any, igConfigs map[string]map[string]any) (map[string]any, error) {
 	groups := getStringSlice(item, "interface_groups")
 	if len(groups) == 0 {
-		return item
+		return item, nil
 	}
 	merged := make(map[string]any)
 	for _, g := range groups {
 		if cfg, ok := igConfigs[g]; ok {
-			MergeMaps(deepCopy(cfg), merged, true)
+			if _, err := MergeMaps(deepCopy(cfg), merged, true); err != nil {
+				return nil, fmt.Errorf("interface group %q: %w", g, err)
+			}
 		}
 	}
-	MergeMaps(item, merged, true)
-	return merged
+	if _, err := MergeMaps(item, merged, true); err != nil {
+		return nil, err
+	}
+	return merged, nil
 }
 
 // applyDefaults recursively applies default values as fallbacks into a config map.

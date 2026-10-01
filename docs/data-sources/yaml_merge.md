@@ -3,12 +3,12 @@
 page_title: "utils_yaml_merge Data Source - terraform-provider-utils"
 subcategory: ""
 description: |-
-  Merge a list of YAML strings into a single YAML string, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged. YAML !env tags can be used to resolve values from environment variables.
+  Merge a list of YAML strings into a single YAML string, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged. YAML !env tags can be used to resolve values from environment variables. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in different documents; scalar values and types may otherwise differ across documents, with the later document's value taking precedence. null values never conflict.
 ---
 
 # utils_yaml_merge (Data Source)
 
-Merge a list of YAML strings into a single YAML string, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged. YAML `!env` tags can be used to resolve values from environment variables.
+Merge a list of YAML strings into a single YAML string, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged. YAML `!env` tags can be used to resolve values from environment variables. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in different documents; scalar values and types may otherwise differ across documents, with the later document's value taking precedence. `null` values never conflict.
 
 ## Example Usage
 

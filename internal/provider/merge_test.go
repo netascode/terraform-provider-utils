@@ -19,6 +19,7 @@ package provider
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -371,10 +372,140 @@ func TestMergeMaps(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		MergeMaps(c.src, c.dst, true)
+		if _, err := MergeMaps(c.src, c.dst, true); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
 		}
+	}
+}
+
+func TestMergeMaps_ShapeConflict(t *testing.T) {
+	cases := []struct {
+		name        string
+		dst         map[string]any
+		src         map[string]any
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "map vs list conflict",
+			dst: map[string]any{
+				"attr": map[string]any{"a": "b"},
+			},
+			src: map[string]any{
+				"attr": []any{"a", "b"},
+			},
+			wantErr:     true,
+			errContains: "attr",
+		},
+		{
+			name: "map vs scalar conflict",
+			dst: map[string]any{
+				"attr": map[string]any{"a": "b"},
+			},
+			src: map[string]any{
+				"attr": "scalar",
+			},
+			wantErr:     true,
+			errContains: "attr",
+		},
+		{
+			name: "list vs scalar conflict",
+			dst: map[string]any{
+				"attr": []any{"a"},
+			},
+			src: map[string]any{
+				"attr": 5,
+			},
+			wantErr:     true,
+			errContains: "attr",
+		},
+		{
+			name: "nested map vs list conflict reports full path",
+			dst: map[string]any{
+				"root": map[string]any{
+					"attr": map[string]any{"a": "b"},
+				},
+			},
+			src: map[string]any{
+				"root": map[string]any{
+					"attr": []any{"a"},
+				},
+			},
+			wantErr:     true,
+			errContains: "root.attr",
+		},
+		{
+			name: "conflict inside matched list item",
+			dst: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name":  "a",
+						"attrs": map[string]any{"x": "y"},
+					},
+				},
+			},
+			src: map[string]any{
+				"list": []any{
+					map[string]any{
+						"name":  "a",
+						"attrs": []any{"x"},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "attrs",
+		},
+		{
+			name: "null src never conflicts",
+			dst: map[string]any{
+				"attr": map[string]any{"a": "b"},
+			},
+			src: map[string]any{
+				"attr": nil,
+			},
+			wantErr: false,
+		},
+		{
+			name: "null dst never conflicts",
+			dst: map[string]any{
+				"attr": nil,
+			},
+			src: map[string]any{
+				"attr": []any{"a"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "scalar value and type differences are still unrestricted",
+			dst: map[string]any{
+				"attr": 5,
+			},
+			src: map[string]any{
+				"attr": "abc",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := MergeMaps(c.src, c.dst, true)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if c.errContains != "" && !strings.Contains(err.Error(), c.errContains) {
+					t.Fatalf("expected error to contain %q, got: %s", c.errContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+		})
 	}
 }
 
@@ -538,7 +669,9 @@ func TestMergeListItem(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		MergeListItem(c.src, &c.dst, true)
+		if err := MergeListItem(c.src, &c.dst, true); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
 		}

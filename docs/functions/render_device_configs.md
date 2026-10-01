@@ -8,7 +8,7 @@ description: |-
 
 # function: render_device_configs
 
-Processes a Network as Code model structure to produce fully rendered per-device configurations. Handles template evaluation, deep merging with precedence cascade (global → group → device), interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures.
+Processes a Network as Code model structure to produce fully rendered per-device configurations. Handles template evaluation, deep merging with precedence cascade (global → group → device), interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; scalar values and types may otherwise differ across levels, with the more specific level taking precedence.
 
 ~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
 

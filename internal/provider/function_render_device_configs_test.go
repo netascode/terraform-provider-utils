@@ -18,6 +18,7 @@
 package provider
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -207,6 +208,53 @@ func testAccRenderDeviceConfigs_precedence() string {
 	}
 	output "global_only" {
 		value = local.device.configuration.system.global_only
+	}
+	`
+}
+
+func TestRenderDeviceConfigsFunction_ShapeConflict(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccRenderDeviceConfigs_shapeConflict(),
+				ExpectError: regexp.MustCompile(`conflicting\s+types\s+for\s+attribute\s+"system"`),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_shapeConflict() string {
+	return `
+	locals {
+		model = {
+			nxos = {
+				global = {
+					configuration = {
+						system = {
+							priority = "global"
+						}
+					}
+				}
+				devices = [
+					{
+						name = "spine1"
+						configuration = {
+							system = ["device"]
+						}
+					}
+				]
+			}
+		}
+
+		result = provider::utils::render_device_configs([], local.model, "", {}, [], [])
+	}
+
+	output "test" {
+		value = local.result.raw
 	}
 	`
 }

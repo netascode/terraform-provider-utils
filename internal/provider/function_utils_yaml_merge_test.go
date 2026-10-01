@@ -20,6 +20,7 @@ package provider
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -152,6 +153,38 @@ func TestYamlMergeFunction_ControlCharacters(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckOutput("test", "banner:\n  crlf: \"line1\\r\\nline2\\n\"\n  tab: \"col1\\tcol2\\n\"\n"),
 				),
+			},
+		},
+	})
+}
+
+// TestYamlMergeFunction_ShapeConflict verifies that merging a map and a list at
+// the same attribute path across documents is rejected instead of silently
+// letting one side win.
+func TestYamlMergeFunction_ShapeConflict(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					doc1 = <<-EOT
+					attr:
+					  nested: value
+					EOT
+					doc2 = <<-EOT
+					attr:
+					  - value
+					EOT
+				}
+				output "test" {
+					value = provider::utils::yaml_merge([local.doc1, local.doc2])
+				}
+				`,
+				ExpectError: regexp.MustCompile(`conflicting\s+types\s+for\s+attribute\s+"attr"`),
 			},
 		},
 	})

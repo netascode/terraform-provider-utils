@@ -19,6 +19,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -40,7 +41,7 @@ func (r MergeFunction) Metadata(_ context.Context, req function.MetadataRequest,
 func (r MergeFunction) Definition(_ context.Context, _ function.DefinitionRequest, resp *function.DefinitionResponse) {
 	resp.Definition = function.Definition{
 		Summary:             "Merge a list of data structures",
-		MarkdownDescription: "Merge a list of data structures into a single data structure, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged.",
+		MarkdownDescription: "Merge a list of data structures into a single data structure, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in different inputs; scalar values and types may otherwise differ across inputs, with the later input's value taking precedence. `null` values never conflict.",
 		Parameters: []function.Parameter{
 			function.DynamicParameter{
 				Name:                "input",
@@ -131,7 +132,10 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 		}
 
 		if dataMap, ok := data.(map[string]any); ok {
-			MergeMaps(dataMap, merged, true)
+			if _, err := MergeMaps(dataMap, merged, true); err != nil {
+				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Error merging inputs: input %d: %s", i+1, err)))
+				return
+			}
 		} else {
 			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("All inputs must be maps/objects"))
 			return

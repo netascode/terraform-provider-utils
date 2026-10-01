@@ -20,6 +20,7 @@ package provider
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -53,6 +54,37 @@ func TestAccDataSourceUtilsYamlMerge_EmptyDocuments(t *testing.T) {
 					resource.TestCheckResourceAttr("data.utils_yaml_merge.whitespace_only", "output", "foo: bar\n"),
 					resource.TestCheckResourceAttr("data.utils_yaml_merge.empty_between", "output", "foo: bar\n"),
 				),
+			},
+		},
+	})
+}
+
+// TestAccDataSourceUtilsYamlMerge_ShapeConflict verifies that merging a map and
+// a list at the same attribute path across documents is rejected instead of
+// silently letting one side win.
+func TestAccDataSourceUtilsYamlMerge_ShapeConflict(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					doc1 = <<-EOT
+					attr:
+					  nested: value
+					EOT
+					doc2 = <<-EOT
+					attr:
+					  - value
+					EOT
+				}
+
+				data "utils_yaml_merge" "conflict" {
+					input = [local.doc1, local.doc2]
+				}
+				`,
+				ExpectError: regexp.MustCompile(`conflicting\s+types\s+for\s+attribute\s+"attr"`),
 			},
 		},
 	})

@@ -1,6 +1,4 @@
-
 ---
-layout: ""
 page_title: "Provider: UTILS"
 description: |-
   The UTILS provider contains data sources acting as helper functions to perform various tasks.

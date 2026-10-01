@@ -8,7 +8,7 @@ description: |-
 
 # function: merge
 
-Merge a list of data structures into a single data structure, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged.
+Merge a list of data structures into a single data structure, where maps are deep merged and list entries are compared against existing list entries and if all primitive values match, the entries are deep merged. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in different inputs; scalar values and types may otherwise differ across inputs, with the later input's value taking precedence. `null` values never conflict.
 
 ## Example Usage
 

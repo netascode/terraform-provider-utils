@@ -7,6 +7,10 @@ description: |-
 
 # Changelog
 
+## Unreleased
+
+- Add stricter validation to `yaml_merge` (data source and function), `merge`, and `render_device_configs`: they now return an error naming the attribute path if the same attribute is a map, a list, or a scalar in one document/layer and a different one of these in another, instead of silently letting one side win. Scalar value and type differences (e.g. string vs. integer) are unaffected — the later value still wins — and `null` values never conflict. Inputs that previously merged with mismatched structure now fail.
+
 ## 2.0.3
 
 - Fix `yaml_merge` and `yaml_encode` losing string type for leading-zero all-digit strings (e.g. `030752180500`) that were emitted unquoted, causing downstream YAML parsers to interpret them as numbers and drop the leading zero (e.g. Cisco type-7 passwords)

@@ -18,6 +18,7 @@
 package provider
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -82,45 +83,93 @@ func mapLen(m any) int {
 // MergeMaps merges src into dst (both can be *OrderedMap or map[string]any).
 // For *OrderedMap: existing keys update in-place (first-doc-wins ordering), new keys append.
 // For map[string]any: standard unordered merge.
-func MergeMaps(src, dst any, deduplicate bool) any {
+//
+// Scalar values may differ in value or type between src and dst — src always wins.
+// A map or list value conflicting in shape with the existing value at the same key
+// (e.g. a map in one document and a list in another) returns an error, since that
+// combination is never a valid merge.
+func MergeMaps(src, dst any, deduplicate bool) (any, error) {
+	return mergeMaps(src, dst, deduplicate, "")
+}
+
+// conflictPath builds a dotted key path used in shape-conflict error messages.
+func conflictPath(parent, key string) string {
+	if parent == "" {
+		return key
+	}
+	return parent + "." + key
+}
+
+// shapeLabel returns a human-readable label for a value's merge-relevant shape.
+func shapeLabel(v any) string {
+	if _, ok := asMap(v); ok {
+		return "map"
+	}
+	if _, ok := v.([]any); ok {
+		return "list"
+	}
+	return "scalar"
+}
+
+func mergeMaps(src, dst any, deduplicate bool, path string) (any, error) {
+	var mergeErr error
 	mapForEach(src, func(key string, sValue any) {
+		if mergeErr != nil {
+			return
+		}
 		if sValue == nil {
 			return
 		}
 		dValue, exists := mapGet(dst, key)
 		if !exists || dValue == nil {
 			mapSet(dst, key, sValue)
-		} else {
-			srcMap, srcIsMap := asMap(sValue)
-			dstMap, dstIsMap := asMap(dValue)
-			if srcIsMap && dstIsMap {
-				mapSet(dst, key, MergeMaps(srcMap, dstMap, deduplicate))
+			return
+		}
+
+		childPath := conflictPath(path, key)
+
+		srcMap, srcIsMap := asMap(sValue)
+		dstMap, dstIsMap := asMap(dValue)
+		if srcIsMap && dstIsMap {
+			merged, err := mergeMaps(srcMap, dstMap, deduplicate, childPath)
+			if err != nil {
+				mergeErr = err
 				return
 			}
-
-			if sv, ok := sValue.([]any); ok {
-				if dv, ok := dValue.([]any); ok {
-					if deduplicate {
-						if len(sv) == 0 || len(dv) == 0 {
-							mapSet(dst, key, append(dv, sv...))
-						} else if hasDuplicatesInList(sv) || hasDuplicatesInList(dv) {
-							mapSet(dst, key, append(dv, sv...))
-						} else {
-							merged := dv
-							mergeListItemsIndexed(sv, &merged, deduplicate)
-							mapSet(dst, key, merged)
-						}
-					} else {
-						mapSet(dst, key, append(dv, sv...))
-					}
-					return
-				}
-			}
-
-			mapSet(dst, key, sValue)
+			mapSet(dst, key, merged)
+			return
 		}
+
+		if sv, ok := sValue.([]any); ok {
+			if dv, ok := dValue.([]any); ok {
+				if deduplicate {
+					if len(sv) == 0 || len(dv) == 0 {
+						mapSet(dst, key, append(dv, sv...))
+					} else if hasDuplicatesInList(sv) || hasDuplicatesInList(dv) {
+						mapSet(dst, key, append(dv, sv...))
+					} else {
+						merged := dv
+						if err := mergeListItemsIndexed(sv, &merged, deduplicate, childPath); err != nil {
+							mergeErr = err
+							return
+						}
+						mapSet(dst, key, merged)
+					}
+				} else {
+					mapSet(dst, key, append(dv, sv...))
+				}
+				return
+			}
+		}
+
+		if isPrimitive(sValue) && isPrimitive(dValue) {
+			mapSet(dst, key, sValue)
+			return
+		}
+
+		mergeErr = fmt.Errorf("conflicting types for attribute %q: %s vs %s", childPath, shapeLabel(dValue), shapeLabel(sValue))
 	})
-	return dst
+	return dst, mergeErr
 }
 
 // asMap checks if a value is a map type (*OrderedMap or map[string]any) and returns it.
@@ -261,7 +310,7 @@ func hasDuplicatesInList(items []any) bool {
 }
 
 // mergeListItemsIndexed merges source items into destination using an inverted index
-func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool) {
+func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool, path string) error {
 	// Build inverted index over destination's dict items
 	destPrimitives := make([]map[string]any, len(*dst))
 	for i, item := range *dst {
@@ -331,7 +380,9 @@ func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool) {
 				}
 			}
 			if hasShared && allMatch {
-				MergeMaps(srcMapVal, (*dst)[ci], deduplicate)
+				if _, err := mergeMaps(srcMapVal, (*dst)[ci], deduplicate, path); err != nil {
+					return err
+				}
 				// Update primitives cache after merge
 				destPrimitives[ci] = extractPrimitives((*dst)[ci])
 				matched = true
@@ -350,18 +401,20 @@ func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool) {
 			}
 		}
 	}
+	return nil
 }
 
-func MergeListItem(src any, dst *[]any, deduplicate bool) {
+func MergeListItem(src any, dst *[]any, deduplicate bool) error {
 	if srcMap, isMap := asMap(src); isMap {
 		for i, item := range *dst {
 			if dstMap, ok := asMap(item); ok {
 				if itemsWouldMerge(srcMap, dstMap) {
-					MergeMaps(srcMap, (*dst)[i], deduplicate)
-					return
+					_, err := mergeMaps(srcMap, (*dst)[i], deduplicate, "")
+					return err
 				}
 			}
 		}
 	}
 	*dst = append(*dst, src)
+	return nil
 }
