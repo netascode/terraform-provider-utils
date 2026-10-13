@@ -292,6 +292,7 @@ type renderContext struct {
 	templates       map[string]map[string]any
 	fileTemplates   map[string]string
 	defaultOrder    int
+	defaultStage    string
 	defaultManaged  bool
 	defaultConfig   map[string]any // defaults[arch].devices.configuration
 }
@@ -378,6 +379,7 @@ func extractRenderContext(model map[string]any, arch string, fileTemplates map[s
 		templates:       templates,
 		fileTemplates:   fileTemplates,
 		defaultOrder:    getIntVal(getMapVal(defaultsArch, "templates"), "order", 0),
+		defaultStage:    getStringVal(getMapVal(defaultsArch, "templates"), "stage", "post"),
 		defaultManaged:  getBoolVal(getMapVal(defaultsArch, "devices"), "managed", true),
 		defaultConfig:   getMapVal(getMapVal(defaultsArch, "devices"), "configuration"),
 	}, nil
@@ -896,6 +898,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 			"name":    name,
 			"content": rendered,
 			"order":   getIntVal(tmpl, "order", rctx.defaultOrder),
+			"stage":   getStringVal(tmpl, "stage", rctx.defaultStage),
 		})
 	}
 
@@ -928,6 +931,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 				"name":    fmt.Sprintf("%s/%s", name, dgName),
 				"content": rendered,
 				"order":   getIntVal(tmpl, "order", rctx.defaultOrder),
+				"stage":   getStringVal(tmpl, "stage", rctx.defaultStage),
 			})
 		}
 	}
@@ -950,6 +954,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 			"name":    name,
 			"content": rendered,
 			"order":   getIntVal(tmpl, "order", rctx.defaultOrder),
+			"stage":   getStringVal(tmpl, "stage", rctx.defaultStage),
 		})
 	}
 
@@ -959,6 +964,9 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 			if m, ok := cli.(map[string]any); ok {
 				if _, hasOrder := m["order"]; !hasOrder {
 					m["order"] = rctx.defaultOrder
+				}
+				if _, hasStage := m["stage"]; !hasStage {
+					m["stage"] = rctx.defaultStage
 				}
 			}
 		}

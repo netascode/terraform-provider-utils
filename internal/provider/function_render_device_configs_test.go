@@ -704,6 +704,16 @@ func TestRenderDeviceConfigsFunction_CliTemplates(t *testing.T) {
 					resource.TestCheckOutput("cli_count", "2"),
 					resource.TestCheckOutput("cli_name_0", "base_cli"),
 					resource.TestCheckOutput("cli_content_0", "hostname spine1"),
+					resource.TestCheckOutput("cli_stage_0", "pre"),
+					resource.TestCheckOutput("cli_stage_1", "post"),
+				),
+			},
+			{
+				Config: testAccRenderDeviceConfigs_cliTemplatesDefaultStage(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("cli_stage_0", "pre"),
+					resource.TestCheckOutput("cli_stage_1", "pre"),
+					resource.TestCheckOutput("cli_stage_2", "post"),
 				),
 			},
 		},
@@ -721,6 +731,7 @@ func testAccRenderDeviceConfigs_cliTemplates() string {
 						type    = "cli"
 						content = "hostname $${name}"
 						order   = 10
+						stage   = "pre"
 					}
 				]
 				global = {
@@ -757,6 +768,68 @@ func testAccRenderDeviceConfigs_cliTemplates() string {
 	}
 	output "cli_content_0" {
 		value = local.device.cli_templates[0].content
+	}
+	output "cli_stage_0" {
+		value = local.device.cli_templates[0].stage
+	}
+	output "cli_stage_1" {
+		value = local.device.cli_templates[1].stage
+	}
+	`
+}
+
+func testAccRenderDeviceConfigs_cliTemplatesDefaultStage() string {
+	return `
+	locals {
+		model = {
+			nxos = {
+				templates = [
+					{
+						name    = "base_cli"
+						type    = "cli"
+						content = "hostname spine1"
+					}
+				]
+				devices = [
+					{
+						name          = "spine1"
+						templates     = ["base_cli"]
+						configuration = {}
+						cli_templates = [
+							{
+								name    = "extra"
+								content = "logging server 10.0.0.1"
+							},
+							{
+								name    = "late"
+								content = "logging server 10.0.0.2"
+								stage   = "post"
+							}
+						]
+					}
+				]
+			}
+		}
+
+		defaults_yaml = <<-EOT
+defaults:
+  nxos:
+    templates:
+      stage: pre
+EOT
+
+		result = provider::utils::render_device_configs([], local.model, local.defaults_yaml, {}, [], [])
+		device = local.result.raw.nxos.devices[0]
+	}
+
+	output "cli_stage_0" {
+		value = local.device.cli_templates[0].stage
+	}
+	output "cli_stage_1" {
+		value = local.device.cli_templates[1].stage
+	}
+	output "cli_stage_2" {
+		value = local.device.cli_templates[2].stage
 	}
 	`
 }
