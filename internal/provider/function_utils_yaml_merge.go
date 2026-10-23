@@ -77,6 +77,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 	}
 
 	merged := NewOrderedMap(0)
+	merger := newListMerger(merged, true)
 	for i, input := range input {
 		decoded, err := yamlDecode(input)
 		if err != nil {
@@ -99,7 +100,7 @@ func (r YamlMergeFunction) Run(ctx context.Context, req function.RunRequest, res
 			return
 		}
 
-		if _, err := MergeMaps(data, merged, true); err != nil {
+		if err := merger.Merge(data); err != nil {
 			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Error merging YAML documents: input %d: %s", i+1, err)))
 			return
 		}

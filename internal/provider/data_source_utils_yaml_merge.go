@@ -89,6 +89,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	merged := NewOrderedMap(0)
+	merger := newListMerger(merged, config.MergeListItems.ValueBool())
 	for i, input := range config.Input {
 		decoded, err := yamlDecode(input)
 		if err != nil {
@@ -120,7 +121,7 @@ func (d *yamlMergeDataSource) Read(ctx context.Context, req datasource.ReadReque
 			return
 		}
 
-		if _, err := MergeMaps(data, merged, config.MergeListItems.ValueBool()); err != nil {
+		if err := merger.Merge(data); err != nil {
 			resp.Diagnostics.AddError(
 				"Error merging YAML documents",
 				fmt.Sprintf("Error merging YAML documents: input %d: %s", i+1, err),

@@ -124,6 +124,7 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 	}
 
 	// Merge remaining inputs
+	merger := newListMerger(merged, true)
 	for i := 1; i < len(input); i++ {
 		data, err := convertDynamicToNative(input[i])
 		if err != nil {
@@ -132,7 +133,7 @@ func (r MergeFunction) Run(ctx context.Context, req function.RunRequest, resp *f
 		}
 
 		if dataMap, ok := data.(map[string]any); ok {
-			if _, err := MergeMaps(dataMap, merged, true); err != nil {
+			if err := merger.Merge(dataMap); err != nil {
 				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError(fmt.Sprintf("Error merging inputs: input %d: %s", i+1, err)))
 				return
 			}

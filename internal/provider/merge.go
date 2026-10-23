@@ -19,6 +19,7 @@ package provider
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 )
 
@@ -89,7 +90,108 @@ func mapLen(m any) int {
 // (e.g. a map in one document and a list in another) returns an error, since that
 // combination is never a valid merge.
 func MergeMaps(src, dst any, deduplicate bool) (any, error) {
-	return mergeMaps(src, dst, deduplicate, "")
+	return mergeMaps(src, dst, deduplicate, "", nil)
+}
+
+// listMerger merges a sequence of documents into one destination, caching the
+// duplicate status of destination lists between documents, so that merging a
+// document only checks the list items it changed instead of rescanning whole lists.
+//
+// The cache is only valid if the documents do not share maps or lists with each
+// other or with the destination, which holds for values produced by yamlDecode
+// (aliases are deep-copied) and convertDynamicToNative.
+type listMerger struct {
+	dst         any
+	deduplicate bool
+	cache       *dupCache
+}
+
+// newListMerger creates a listMerger merging into dst. The cache is only used
+// with deduplicate, as list items are simply appended otherwise.
+func newListMerger(dst any, deduplicate bool) *listMerger {
+	m := &listMerger{dst: dst, deduplicate: deduplicate}
+	if deduplicate {
+		m.cache = newDupCache()
+	}
+	return m
+}
+
+// Merge merges src into the destination, see MergeMaps.
+func (m *listMerger) Merge(src any) error {
+	_, err := mergeMaps(src, m.dst, m.deduplicate, "", m.cache)
+	if err != nil && m.cache != nil {
+		// A failed merge can leave destination lists partially changed without
+		// updating their cache entries, so start over with an empty cache
+		m.cache = newDupCache()
+	}
+	return err
+}
+
+// dupCacheKey identifies a list by the map containing it and its key, as Go
+// slices have no stable identity (append may reallocate them).
+type dupCacheKey struct {
+	container uintptr
+	key       string
+}
+
+type dupCacheEntry struct {
+	// container keeps the map alive, so that its address cannot be reused
+	container any
+	// n and first identify the cached slice, to detect lists replaced without
+	// going through the cache
+	n     int
+	first *any
+	dup   bool
+}
+
+// dupCache caches the duplicate status of destination lists during a merge run.
+// A nil *dupCache is valid and disables caching.
+type dupCache struct {
+	entries map[dupCacheKey]dupCacheEntry
+}
+
+func newDupCache() *dupCache {
+	return &dupCache{entries: make(map[dupCacheKey]dupCacheEntry)}
+}
+
+func newDupCacheKey(container any, key string) dupCacheKey {
+	return dupCacheKey{container: reflect.ValueOf(container).Pointer(), key: key}
+}
+
+// hasDuplicates returns the cached duplicate status of the list stored at key
+// in container, computing and caching it if needed.
+func (c *dupCache) hasDuplicates(container any, key string, items []any) bool {
+	if c == nil {
+		return hasDuplicatesInList(items)
+	}
+	if len(items) == 0 {
+		return false
+	}
+	if e, ok := c.entries[newDupCacheKey(container, key)]; ok && e.n == len(items) && e.first == &items[0] {
+		return e.dup
+	}
+	dup := hasDuplicatesInList(items)
+	c.set(container, key, items, dup)
+	return dup
+}
+
+func (c *dupCache) set(container any, key string, items []any, dup bool) {
+	if c == nil {
+		return
+	}
+	k := newDupCacheKey(container, key)
+	if len(items) == 0 {
+		delete(c.entries, k)
+		return
+	}
+	c.entries[k] = dupCacheEntry{container: container, n: len(items), first: &items[0], dup: dup}
+}
+
+func (c *dupCache) invalidate(container any, key string) {
+	if c == nil {
+		return
+	}
+	delete(c.entries, newDupCacheKey(container, key))
 }
 
 // conflictPath builds a dotted key path used in shape-conflict error messages.
@@ -111,7 +213,7 @@ func shapeLabel(v any) string {
 	return "scalar"
 }
 
-func mergeMaps(src, dst any, deduplicate bool, path string) (any, error) {
+func mergeMaps(src, dst any, deduplicate bool, path string, cache *dupCache) (any, error) {
 	var mergeErr error
 	mapForEach(src, func(key string, sValue any) {
 		if mergeErr != nil {
@@ -123,6 +225,7 @@ func mergeMaps(src, dst any, deduplicate bool, path string) (any, error) {
 		dValue, exists := mapGet(dst, key)
 		if !exists || dValue == nil {
 			mapSet(dst, key, sValue)
+			cache.invalidate(dst, key)
 			return
 		}
 
@@ -131,7 +234,7 @@ func mergeMaps(src, dst any, deduplicate bool, path string) (any, error) {
 		srcMap, srcIsMap := asMap(sValue)
 		dstMap, dstIsMap := asMap(dValue)
 		if srcIsMap && dstIsMap {
-			merged, err := mergeMaps(srcMap, dstMap, deduplicate, childPath)
+			merged, err := mergeMaps(srcMap, dstMap, deduplicate, childPath, cache)
 			if err != nil {
 				mergeErr = err
 				return
@@ -145,15 +248,26 @@ func mergeMaps(src, dst any, deduplicate bool, path string) (any, error) {
 				if deduplicate {
 					if len(sv) == 0 || len(dv) == 0 {
 						mapSet(dst, key, append(dv, sv...))
-					} else if hasDuplicatesInList(sv) || hasDuplicatesInList(dv) {
-						mapSet(dst, key, append(dv, sv...))
+						if len(sv) > 0 {
+							cache.invalidate(dst, key)
+						}
+					} else if hasDuplicatesInList(sv) || cache.hasDuplicates(dst, key, dv) {
+						// Concatenate without merging to preserve all duplicates
+						merged := append(dv, sv...)
+						mapSet(dst, key, merged)
+						cache.set(dst, key, merged, true)
 					} else {
 						merged := dv
-						if err := mergeListItemsIndexed(sv, &merged, deduplicate, childPath); err != nil {
+						mergedIndices, primsList, err := mergeListItemsIndexed(sv, &merged, deduplicate, childPath, cache)
+						if err != nil {
 							mergeErr = err
 							return
 						}
 						mapSet(dst, key, merged)
+						// Only merged items can have become duplicates of others
+						if cache != nil {
+							cache.set(dst, key, merged, hasDuplicatesInvolving(primsList, mergedIndices))
+						}
 					}
 				} else {
 					mapSet(dst, key, append(dv, sv...))
@@ -241,6 +355,21 @@ func extractPrimitives(m any) map[string]any {
 	return result
 }
 
+// primitivesMatch reports whether two items' primitive values share at least one
+// key and all shared keys have equal values, i.e. the items would merge.
+func primitivesMatch(a, b map[string]any) bool {
+	shared := false
+	for k, v1 := range a {
+		if v2, ok := b[k]; ok {
+			shared = true
+			if v1 != v2 {
+				return false
+			}
+		}
+	}
+	return shared
+}
+
 // buildInvertedIndex builds a mapping from (key, value) pairs to item indices
 func buildInvertedIndex(primsList []map[string]any) map[kvPair][]int {
 	index := make(map[kvPair][]int)
@@ -286,20 +415,7 @@ func hasDuplicatesInList(items []any) bool {
 					continue
 				}
 				checked[pair] = true
-				i, j := pair[0], pair[1]
-				// Intersect primitive key sets, verify all shared keys match
-				match := false
-				allMatch := true
-				for k, v1 := range primsList[i] {
-					if v2, ok := primsList[j][k]; ok {
-						match = true
-						if v1 != v2 {
-							allMatch = false
-							break
-						}
-					}
-				}
-				if match && allMatch {
+				if primitivesMatch(primsList[pair[0]], primsList[pair[1]]) {
 					return true
 				}
 			}
@@ -309,8 +425,61 @@ func hasDuplicatesInList(items []any) bool {
 	return false
 }
 
-// mergeListItemsIndexed merges source items into destination using an inverted index
-func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool, path string) error {
+// hasDuplicatesInvolving checks if any dict item at the given indices matches another
+// dict item, using the same matching logic as hasDuplicatesInList. If a list without
+// duplicates had only the items at these indices modified, only such pairs can have
+// become duplicates. primsList holds the primitive values of each list item (nil for
+// non-dict items), as returned by mergeListItemsIndexed.
+func hasDuplicatesInvolving(primsList []map[string]any, indices []int) bool {
+	if len(indices) == 0 {
+		return false
+	}
+
+	// Only index the (key, value) pairs of the modified items, as any matching
+	// item must share at least one of them
+	wanted := make(map[kvPair]bool)
+	for _, i := range indices {
+		for k, v := range primsList[i] {
+			wanted[kvPair{key: k, value: v}] = true
+		}
+	}
+	index := make(map[kvPair][]int, len(wanted))
+	for j, prims := range primsList {
+		for k, v := range prims {
+			pair := kvPair{key: k, value: v}
+			if wanted[pair] {
+				index[pair] = append(index[pair], j)
+			}
+		}
+	}
+
+	checked := make(map[int]bool, len(indices))
+	for _, i := range indices {
+		if checked[i] {
+			continue
+		}
+		checked[i] = true
+		prims := primsList[i]
+		candidates := make(map[int]bool)
+		for k, v := range prims {
+			for _, j := range index[kvPair{key: k, value: v}] {
+				if j != i && !candidates[j] {
+					candidates[j] = true
+					if primitivesMatch(prims, primsList[j]) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// mergeListItemsIndexed merges source items into destination using an inverted index.
+// It returns the indices of destination items that source items were merged into and
+// the primitive values of all destination items after merging (nil for non-dict items).
+func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool, path string, cache *dupCache) ([]int, []map[string]any, error) {
 	// Build inverted index over destination's dict items
 	destPrimitives := make([]map[string]any, len(*dst))
 	for i, item := range *dst {
@@ -330,16 +499,21 @@ func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool, path
 		}
 	}
 
+	var mergedIndices []int
 	for _, srcItem := range sourceItems {
+		// Appended items also need an entry in destPrimitives, as candidate
+		// indices refer to positions in dst
 		srcMapVal, isMap := asMap(srcItem)
 		if !isMap {
 			*dst = append(*dst, srcItem)
+			destPrimitives = append(destPrimitives, nil)
 			continue
 		}
 
 		srcPrims := extractPrimitives(srcMapVal)
 		if len(srcPrims) == 0 {
 			*dst = append(*dst, srcItem)
+			destPrimitives = append(destPrimitives, srcPrims)
 			continue
 		}
 
@@ -367,24 +541,13 @@ func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool, path
 			if dp == nil {
 				continue
 			}
-			// Intersect primitive key sets, verify all shared keys match
-			hasShared := false
-			allMatch := true
-			for k, sv := range srcPrims {
-				if dv, ok := dp[k]; ok {
-					hasShared = true
-					if sv != dv {
-						allMatch = false
-						break
-					}
-				}
-			}
-			if hasShared && allMatch {
-				if _, err := mergeMaps(srcMapVal, (*dst)[ci], deduplicate, path); err != nil {
-					return err
+			if primitivesMatch(srcPrims, dp) {
+				if _, err := mergeMaps(srcMapVal, (*dst)[ci], deduplicate, path, cache); err != nil {
+					return nil, nil, err
 				}
 				// Update primitives cache after merge
 				destPrimitives[ci] = extractPrimitives((*dst)[ci])
+				mergedIndices = append(mergedIndices, ci)
 				matched = true
 				break
 			}
@@ -401,7 +564,7 @@ func mergeListItemsIndexed(sourceItems []any, dst *[]any, deduplicate bool, path
 			}
 		}
 	}
-	return nil
+	return mergedIndices, destPrimitives, nil
 }
 
 func MergeListItem(src any, dst *[]any, deduplicate bool) error {
@@ -409,7 +572,7 @@ func MergeListItem(src any, dst *[]any, deduplicate bool) error {
 		for i, item := range *dst {
 			if dstMap, ok := asMap(item); ok {
 				if itemsWouldMerge(srcMap, dstMap) {
-					_, err := mergeMaps(srcMap, (*dst)[i], deduplicate, "")
+					_, err := mergeMaps(srcMap, (*dst)[i], deduplicate, "", nil)
 					return err
 				}
 			}

@@ -18,6 +18,8 @@
 package provider
 
 import (
+	"fmt"
+	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
@@ -675,5 +677,364 @@ func TestMergeListItem(t *testing.T) {
 		if !reflect.DeepEqual(c.dst, c.result) {
 			t.Fatalf("Error matching dst and result: %#v vs %#v", c.dst, c.result)
 		}
+	}
+}
+
+// mergeYAMLDocs merges YAML documents in order, either with a listMerger (cached)
+// or with a separate MergeMaps call per document, and returns the encoded result.
+func mergeYAMLDocs(t *testing.T, docs []string, cached bool) string {
+	t.Helper()
+	merged := NewOrderedMap(0)
+	merger := newListMerger(merged, true)
+	for i, doc := range docs {
+		decoded, err := yamlDecode(doc)
+		if err != nil {
+			t.Fatalf("doc %d: unexpected decode error: %s", i, err)
+		}
+		if cached {
+			err = merger.Merge(decoded)
+		} else {
+			_, err = MergeMaps(decoded, merged, true)
+		}
+		if err != nil {
+			t.Fatalf("doc %d: unexpected merge error: %s", i, err)
+		}
+	}
+	out, err := yamlEncode(merged)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %s", err)
+	}
+	return out
+}
+
+func TestMergeMaps_AppendItemWithoutPrimitives(t *testing.T) {
+	cases := []struct {
+		name     string
+		appended any
+	}{
+		{name: "primitive item", appended: "abc"},
+		{name: "map item without primitives", appended: map[string]any{"map": map[string]any{"elem1": "value1"}}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dst := map[string]any{"list": []any{map[string]any{"name": "b"}}}
+			src := map[string]any{"list": []any{
+				c.appended,
+				map[string]any{"name": "a", "x": 1},
+				map[string]any{"name": "a", "x": 2},
+			}}
+			result := map[string]any{"list": []any{
+				map[string]any{"name": "b"},
+				c.appended,
+				map[string]any{"name": "a", "x": 1},
+				map[string]any{"name": "a", "x": 2},
+			}}
+			if _, err := MergeMaps(src, dst, true); err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(dst, result) {
+				t.Fatalf("Error matching dst and result: %#v vs %#v", dst, result)
+			}
+		})
+	}
+
+	// Source items after the appended item must not panic with index out of range
+	got := mergeYAMLDocs(t, []string{
+		"l:\n- name: a\n",
+		"l:\n- x\n- name: b\n  v: 1\n- name: c\n  v: 1\n",
+	}, false)
+	want := "l:\n  - name: a\n  - x\n  - name: b\n    v: 1\n  - name: c\n    v: 1\n"
+	if got != want {
+		t.Fatalf("unexpected result:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestListMerger_MergeIntroducesDuplicate(t *testing.T) {
+	cases := []struct {
+		name string
+		docs []string
+		want string
+	}{
+		{
+			name: "flat",
+			docs: []string{
+				"list:\n  - name: x\n  - id: 1\n",
+				// Merges into the first item, which then matches the second item
+				"list:\n  - name: x\n    id: 1\n",
+				"list:\n  - id: 1\n    c: 3\n",
+			},
+			want: "list:\n  - name: x\n    id: 1\n  - id: 1\n  - id: 1\n    c: 3\n",
+		},
+		{
+			name: "nested",
+			docs: []string{
+				"tenants:\n  - name: t\n    list:\n      - name: x\n      - id: 1\n",
+				"tenants:\n  - name: t\n    list:\n      - name: x\n        id: 1\n",
+				"tenants:\n  - name: t\n    list:\n      - id: 1\n        c: 3\n",
+			},
+			want: "tenants:\n  - name: t\n    list:\n      - name: x\n        id: 1\n      - id: 1\n      - id: 1\n        c: 3\n",
+		},
+		{
+			// Aliases are deep-copied by yamlDecode, so merging into one does not change the other
+			name: "aliases",
+			docs: []string{
+				"a:\n  - &item\n    name: n\nb:\n  - *item\n  - id: 1\n",
+				"b:\n  - name: z\na:\n  - name: n\n    id: 1\n",
+				"b:\n  - id: 1\n    c: 3\n",
+			},
+			want: "a:\n  - name: \"n\"\n    id: 1\nb:\n  - name: \"n\"\n  - id: 1\n    c: 3\n  - name: z\n",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, cached := range []bool{false, true} {
+				if got := mergeYAMLDocs(t, c.docs, cached); got != c.want {
+					t.Fatalf("cached=%v: unexpected result:\n%s\nwant:\n%s", cached, got, c.want)
+				}
+			}
+		})
+	}
+}
+
+func TestListMerger_ContinueAfterError(t *testing.T) {
+	docs := []string{
+		"list:\n  - name: a\n    c: x\n  - id: 1\n",
+		// Sets id in the first item, which then matches the second item, before
+		// failing with a shape conflict for c
+		"list:\n  - name: a\n    id: 1\n    c: [y]\n",
+		// Must be appended, as the list now contains duplicates
+		"list:\n  - id: 1\n    d: 2\n",
+	}
+	want := "list:\n  - name: a\n    c: x\n    id: 1\n  - id: 1\n  - id: 1\n    d: 2\n"
+
+	for _, cached := range []bool{false, true} {
+		merged := NewOrderedMap(0)
+		merger := newListMerger(merged, true)
+		for i, doc := range docs {
+			decoded, err := yamlDecode(doc)
+			if err != nil {
+				t.Fatalf("doc %d: unexpected decode error: %s", i, err)
+			}
+			if cached {
+				err = merger.Merge(decoded)
+			} else {
+				_, err = MergeMaps(decoded, merged, true)
+			}
+			if (err != nil) != (i == 1) {
+				t.Fatalf("cached=%v: doc %d: unexpected error result: %v", cached, i, err)
+			}
+		}
+		if got, _ := yamlEncode(merged); got != want {
+			t.Fatalf("cached=%v: unexpected result:\n%s\nwant:\n%s", cached, got, want)
+		}
+	}
+}
+
+// randomScalar returns a random scalar or null value.
+func randomScalar(rng *rand.Rand) any {
+	return []any{"a", "b", 1, 2, nil}[rng.Intn(5)]
+}
+
+// randomMergeMap generates a random map. The shape of each value depends on its
+// key (x: scalar, y: map, z: list), so that documents never conflict in shape.
+func randomMergeMap(rng *rand.Rand, depth int) *OrderedMap {
+	m := NewOrderedMap(2)
+	if depth > 3 {
+		return m
+	}
+	for i := 0; i < 2; i++ {
+		switch key := string("xyz"[rng.Intn(3)]); key {
+		case "x":
+			m.Set(key, randomScalar(rng))
+		case "y":
+			m.Set(key, randomMergeMap(rng, depth+1))
+		case "z":
+			m.Set(key, randomMergeList(rng, depth+1))
+		}
+	}
+	return m
+}
+
+// randomMergeList generates a random list whose items often share primitive
+// values, so that they merge or become duplicates.
+func randomMergeList(rng *rand.Rand, depth int) []any {
+	items := []any{}
+	if depth > 3 {
+		return items
+	}
+	for n := rng.Intn(4); n > 0; n-- {
+		switch r := rng.Float64(); {
+		case r < 0.1:
+			items = append(items, randomScalar(rng))
+			continue
+		case r < 0.15:
+			// Map item without primitive values
+			item := NewOrderedMap(1)
+			item.Set("l", randomMergeList(rng, depth+1))
+			items = append(items, item)
+			continue
+		}
+		item := NewOrderedMap(3)
+		item.Set([]string{"name", "id"}[rng.Intn(2)], string("ab"[rng.Intn(2)]))
+		if rng.Float64() < 0.5 {
+			item.Set("v", 1+rng.Intn(2))
+		}
+		if rng.Float64() < 0.5 {
+			item.Set("l", randomMergeList(rng, depth+1))
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// toPlainMaps converts all *OrderedMap values to map[string]any, as produced by
+// convertDynamicToNative for the merge function.
+func toPlainMaps(v any) any {
+	switch val := v.(type) {
+	case *OrderedMap:
+		m := make(map[string]any, val.Len())
+		for _, e := range val.Entries() {
+			m[e.Key] = toPlainMaps(e.Value)
+		}
+		return m
+	case []any:
+		items := make([]any, len(val))
+		for i, item := range val {
+			items[i] = toPlainMaps(item)
+		}
+		return items
+	default:
+		return v
+	}
+}
+
+// randomMergeDocs generates random documents for comparing cached and uncached
+// merging. With conflicts, the key "c" has a random shape, so that some documents
+// fail to merge.
+func randomMergeDocs(seed int64, conflicts bool) []any {
+	rng := rand.New(rand.NewSource(seed))
+	var docs []any
+	for i := 0; i < 6; i++ {
+		root := NewOrderedMap(3)
+		root.Set("list", randomMergeList(rng, 0))
+		root.Set("map", randomMergeMap(rng, 0))
+		if conflicts && rng.Float64() < 0.3 {
+			root.Set("c", []any{randomScalar(rng), randomMergeMap(rng, 3), randomMergeList(rng, 3)}[rng.Intn(3)])
+		}
+		root.Set("list2", randomMergeList(rng, 0))
+		doc := NewOrderedMap(1)
+		doc.Set("root", root)
+		docs = append(docs, doc)
+	}
+	return docs
+}
+
+func TestListMerger_MatchesSequentialMergeMaps(t *testing.T) {
+	cases := []struct {
+		name      string
+		plain     bool
+		conflicts bool
+	}{
+		{name: "ordered maps"},
+		// Plain maps are iterated in random order, so documents must not fail
+		// halfway, as the partially merged result would differ between runs
+		{name: "plain maps", plain: true},
+		// Merging continues after documents failing with a top-level conflict
+		// (see TestListMerger_ContinueAfterError for failures inside list items)
+		{name: "ordered maps with conflicts", conflicts: true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			failed := 0
+			for seed := int64(0); seed < 200; seed++ {
+				docs := randomMergeDocs(seed, c.conflicts)
+				var expected, actual any = NewOrderedMap(0), NewOrderedMap(0)
+				if c.plain {
+					for i := range docs {
+						docs[i] = toPlainMaps(docs[i])
+					}
+					expected, actual = map[string]any{}, map[string]any{}
+				}
+
+				var expectedErrs, actualErrs []int
+				for i, doc := range docs {
+					if _, err := MergeMaps(deepCopy(doc), expected, true); err != nil {
+						expectedErrs = append(expectedErrs, i)
+					}
+				}
+				merger := newListMerger(actual, true)
+				for i, doc := range docs {
+					if err := merger.Merge(deepCopy(doc)); err != nil {
+						actualErrs = append(actualErrs, i)
+					}
+				}
+
+				if !reflect.DeepEqual(expectedErrs, actualErrs) {
+					t.Fatalf("seed %d: failed documents %v without cache, %v with cache", seed, expectedErrs, actualErrs)
+				}
+				if len(expectedErrs) > 0 {
+					if !c.conflicts {
+						t.Fatalf("seed %d: unexpected merge errors in documents %v", seed, expectedErrs)
+					}
+					failed++
+				}
+				if !reflect.DeepEqual(expected, actual) {
+					want, _ := yamlEncode(expected)
+					got, _ := yamlEncode(actual)
+					t.Fatalf("seed %d: cached result differs:\n%s\nwant:\n%s", seed, got, want)
+				}
+			}
+			if c.conflicts && failed < 20 {
+				t.Fatalf("only %d seeds with failed documents, expected at least 20", failed)
+			}
+		})
+	}
+}
+
+func BenchmarkYamlMerge_ManyInputs(b *testing.B) {
+	// Many documents adding items to the same large list, all sharing a common
+	// primitive value, so that a full duplicate scan is expensive
+	const inputs, itemsPerInput = 100, 10
+	var docs []any
+	for i := 0; i < inputs; i++ {
+		items := make([]any, 0, itemsPerInput)
+		for j := 0; j < itemsPerInput; j++ {
+			item := NewOrderedMap(2)
+			item.Set("name", fmt.Sprintf("item-%d-%d", i, j))
+			item.Set("vrf", "default")
+			items = append(items, item)
+		}
+		doc := NewOrderedMap(1)
+		doc.Set("list", items)
+		docs = append(docs, doc)
+	}
+
+	for _, cached := range []bool{false, true} {
+		b.Run(fmt.Sprintf("cached=%v", cached), func(b *testing.B) {
+			for n := 0; n < b.N; n++ {
+				b.StopTimer()
+				copies := make([]any, len(docs))
+				for i, doc := range docs {
+					copies[i] = deepCopy(doc)
+				}
+				merged := NewOrderedMap(0)
+				merger := newListMerger(merged, true)
+				b.StartTimer()
+				for _, doc := range copies {
+					var err error
+					if cached {
+						err = merger.Merge(doc)
+					} else {
+						_, err = MergeMaps(doc, merged, true)
+					}
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
 	}
 }
