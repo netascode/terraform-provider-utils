@@ -39,3 +39,4 @@ tmp
 
 # SBOM files generated during release
 *_sbom.*.json
+test-output.log
