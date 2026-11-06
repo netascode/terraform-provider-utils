@@ -38,6 +38,9 @@ import (
 // can be customized.
 //go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs
 
+// Shorten page titles for compatibility with other registries, e.g. OpenTofu
+//go:generate go run gen/docs_postprocess.go
+
 var (
 	// these will be set by the goreleaser configuration
 	// to appropriate values for the compiled binary
