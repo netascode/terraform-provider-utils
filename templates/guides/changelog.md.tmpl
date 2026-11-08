@@ -7,7 +7,7 @@ description: |-
 
 # Changelog
 
-## Unreleased
+## 2.2.0
 
 - Add `render_meraki_model` function, which merges a Meraki Network-as-Code model and applies network (`meraki.templates.networks`) and device (`meraki.templates.devices`) templates, including `model` and `file` templates, `GLOBAL` variable and inheritance of network variables in device templates
 - Fix `render_device_configs` crashing when a template expression evaluates to a list or map (e.g. `${my_list}`): the value is now returned as a list or map
