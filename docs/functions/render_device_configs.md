@@ -10,7 +10,7 @@ description: |-
 
 Processes a Network as Code model structure to produce fully rendered per-device configurations. Handles template evaluation, deep merging with precedence cascade (global → group → device), interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; scalar values and types may otherwise differ across levels, with the more specific level taking precedence.
 
-The `raw` output keeps `!env` tags unresolved, also where variables with `!env` tags are used in templates, while the `resolved` output resolves them, so that variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`).
+The `raw` output keeps `!env` tags unresolved, also where variables with `!env` tags are used in templates, while the `resolved` output resolves them, so that variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`). In the `raw` output, a value consisting only of an `!env` tag is kept as `!env VAR` and written as a YAML tag by `yaml_encode`, so that YAML loaders with `!env` support (e.g. `nac-validate`, `nac-test`) resolve it. A tag used within a string is kept as text (e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`).
 
 ~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
 

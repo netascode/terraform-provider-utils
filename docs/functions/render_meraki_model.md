@@ -19,7 +19,7 @@ The following variables are available in templates:
 
 Only template content is rendered, `${}` expressions in the regular configuration are left untouched. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in a template and in the configuration.
 
-The result contains the rendered model with `!env` tags preserved (`raw`), the rendered model with `!env` tags resolved (`resolved`) and the merged default values (`defaults`). Variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`): they are resolved in `resolved` and kept unresolved in `raw`. The `meraki.templates` section is not included in the rendered model.
+The result contains the rendered model with `!env` tags preserved (`raw`), the rendered model with `!env` tags resolved (`resolved`) and the merged default values (`defaults`). Variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`): they are resolved in `resolved` and kept unresolved in `raw`. In `raw`, a value consisting only of an `!env` tag is kept as `!env VAR` and written as a YAML tag by `yaml_encode`, so that YAML loaders with `!env` support (e.g. `nac-validate`, `nac-test`) resolve it. A tag used within a string is kept as text (e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`). The `meraki.templates` section is not included in the rendered model.
 
 ~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
 
