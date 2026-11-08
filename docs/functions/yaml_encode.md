@@ -8,7 +8,7 @@ description: |-
 
 # function: yaml_encode
 
-Encode a given value as a YAML string using the `goccy/go-yaml` library. Produces YAML 1.2 compliant block-style output with 2-space indentation. Map keys are sorted alphabetically, strings that could be misinterpreted are automatically quoted, and null values are rendered as `null`.
+Encode a given value as a YAML string using the `goccy/go-yaml` library. Produces YAML 1.2 compliant block-style output with 2-space indentation. Map keys are sorted alphabetically, strings that could be misinterpreted are automatically quoted, and null values are rendered as `null`. String values of the form `!env VAR` (e.g. preserved by `render_device_configs` or `render_meraki_model` in their `raw` output) are emitted as YAML `!env` tags (`!env VAR`) instead of quoted strings, so that they are resolved again when the YAML is loaded by a YAML loader with `!env` support (e.g. `nac-yaml`). YAML loaders without `!env` support, such as Terraform's `yamldecode`, cannot read such output. Strings that only contain an `!env` tag as part of the value (e.g. `Bearer !env TOKEN`) are emitted as regular strings.
 
 ## Example Usage
 

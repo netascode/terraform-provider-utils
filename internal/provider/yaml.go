@@ -20,6 +20,7 @@ package provider
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -493,6 +494,57 @@ type doubleQuotedString string
 
 func (s doubleQuotedString) MarshalYAML() ([]byte, error) {
 	return []byte(strconv.Quote(string(s))), nil
+}
+
+// envTagNamePattern matches environment variable names that can be emitted as
+// the value of a YAML !env tag without quoting.
+var envTagNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// envTagString forces output as a YAML !env tag (e.g. `!env VAR`) via goccy/go-yaml's
+// BytesMarshaler interface. The value is the environment variable name.
+type envTagString string
+
+func (s envTagString) MarshalYAML() ([]byte, error) {
+	return []byte("!env " + string(s)), nil
+}
+
+// tagYamlStrings returns a copy of v where every string of the form "!env VAR"
+// (as preserved by yamlDecode) is replaced by an envTagString, so that yamlEncode
+// emits it as a YAML !env tag instead of a quoted string. Strings where the tag is
+// only part of the value (e.g. "Bearer !env TOKEN") or where VAR is not a valid
+// environment variable name are left unchanged.
+func tagYamlStrings(v any) any {
+	switch val := v.(type) {
+	case string:
+		if !strings.HasPrefix(val, "!env ") {
+			return val
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(val, "!env "))
+		if envTagNamePattern.MatchString(name) {
+			return envTagString(name)
+		}
+		return val
+	case *OrderedMap:
+		result := NewOrderedMap(val.Len())
+		for _, e := range val.Entries() {
+			result.Set(e.Key, tagYamlStrings(e.Value))
+		}
+		return result
+	case map[string]any:
+		result := make(map[string]any, len(val))
+		for k, item := range val {
+			result[k] = tagYamlStrings(item)
+		}
+		return result
+	case []any:
+		result := make([]any, len(val))
+		for i, item := range val {
+			result[i] = tagYamlStrings(item)
+		}
+		return result
+	default:
+		return v
+	}
 }
 
 // yamlEncode marshals a native Go value to a YAML string using github.com/goccy/go-yaml.
