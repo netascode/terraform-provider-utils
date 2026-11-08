@@ -18,6 +18,7 @@
 package provider
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
@@ -310,5 +311,26 @@ func TestRenderHCLTemplate_NativeToCtyIntegration(t *testing.T) {
 	expected := "spine1 peers with leaf1"
 	if result != expected {
 		t.Fatalf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestRenderHCLTemplateValue_ComplexTypes(t *testing.T) {
+	vars := map[string]cty.Value{
+		"list": cty.TupleVal([]cty.Value{cty.StringVal("a"), cty.NumberIntVal(1)}),
+		"obj":  cty.ObjectVal(map[string]cty.Value{"k": cty.BoolVal(true)}),
+	}
+	got, err := renderHCLTemplateValue("${list}", vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []any{"a", int64(1)}) {
+		t.Fatalf("expected list, got %#v", got)
+	}
+	got, err = renderHCLTemplateValue("${obj}", vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, map[string]any{"k": true}) {
+		t.Fatalf("expected map, got %#v", got)
 	}
 }

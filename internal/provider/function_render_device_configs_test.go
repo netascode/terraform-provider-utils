@@ -1425,3 +1425,95 @@ EOT
 	}
 	`
 }
+
+func TestRenderDeviceConfigsFunction_EnvTagsInVariables(t *testing.T) {
+	t.Setenv("TF_ACC_RDC_TOKEN", "secret123")
+	t.Setenv("TF_ACC_RDC_DOLLAR", "ab${c}%{d}")
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccRenderDeviceConfigs_envTagsInVariables(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("model_raw", "Bearer !env TF_ACC_RDC_TOKEN"),
+					resource.TestCheckOutput("model_resolved", "Bearer secret123"),
+					resource.TestCheckOutput("pure_raw", "!env TF_ACC_RDC_TOKEN"),
+					resource.TestCheckOutput("pure_resolved", "secret123"),
+					resource.TestCheckOutput("config_resolved", "Key secret123"),
+					resource.TestCheckOutput("global_resolved", "x-secret123"),
+					resource.TestCheckOutput("cli_raw", "snmp-server community !env TF_ACC_RDC_TOKEN"),
+					resource.TestCheckOutput("cli_resolved", "snmp-server community secret123"),
+					resource.TestCheckOutput("dollar_resolved", "ab${c}%{d}"),
+				),
+			},
+		},
+	})
+}
+
+func testAccRenderDeviceConfigs_envTagsInVariables() string {
+	return `
+	locals {
+		yaml = <<-EOT
+		nxos:
+		  templates:
+		    - name: t
+		      type: model
+		      configuration:
+		        system:
+		          banner: "Bearer $${token}"
+		          pure: "$${token}"
+		          global: "x-$${GLOBAL.global.variables.token}"
+		    - name: c
+		      type: cli
+		      content: "snmp-server community $${token}"
+		  global:
+		    templates: [t, c]
+		    variables:
+		      token: !env TF_ACC_RDC_TOKEN
+		  devices:
+		    - name: spine1
+		      variables:
+		        unused: !env TF_ACC_RDC_UNSET_VARIABLE
+		      configuration:
+		        system:
+		          description: "Key $${token}"
+		          password: !env TF_ACC_RDC_DOLLAR
+		EOT
+
+		result   = provider::utils::render_device_configs([local.yaml], {}, "", {}, [], [])
+		raw      = local.result.raw.nxos.devices[0]
+		resolved = local.result.resolved.nxos.devices[0]
+	}
+
+	output "model_raw" {
+		value = local.raw.configuration.system.banner
+	}
+	output "model_resolved" {
+		value = local.resolved.configuration.system.banner
+	}
+	output "pure_raw" {
+		value = local.raw.configuration.system.pure
+	}
+	output "pure_resolved" {
+		value = local.resolved.configuration.system.pure
+	}
+	output "config_resolved" {
+		value = local.resolved.configuration.system.description
+	}
+	output "global_resolved" {
+		value = local.resolved.configuration.system.global
+	}
+	output "cli_raw" {
+		value = local.raw.cli_templates[0].content
+	}
+	output "cli_resolved" {
+		value = local.resolved.cli_templates[0].content
+	}
+	output "dollar_resolved" {
+		value = local.resolved.configuration.system.password
+	}
+	`
+}

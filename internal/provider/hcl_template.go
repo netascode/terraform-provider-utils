@@ -20,6 +20,7 @@ package provider
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 
@@ -99,8 +100,22 @@ func ctyToNative(val cty.Value) any {
 		return f
 	case ty == cty.Bool:
 		return val.True()
+	case ty.IsListType() || ty.IsTupleType() || ty.IsSetType():
+		result := make([]any, 0, val.LengthInt())
+		for it := val.ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			result = append(result, ctyToNative(v))
+		}
+		return result
+	case ty.IsMapType() || ty.IsObjectType():
+		result := make(map[string]any, val.LengthInt())
+		for it := val.ElementIterator(); it.Next(); {
+			k, v := it.Element()
+			result[k.AsString()] = ctyToNative(v)
+		}
+		return result
 	default:
-		// For complex types, fall back to string representation
+		// Unknown or other types, fall back to string representation
 		return val.AsString()
 	}
 }
@@ -121,6 +136,9 @@ func nativeToCty(val any) (cty.Value, error) {
 	case int64:
 		return cty.NumberIntVal(v), nil
 	case float64:
+		if math.IsNaN(v) {
+			return cty.NilVal, fmt.Errorf("NaN is not a supported number value")
+		}
 		return cty.NumberFloatVal(v), nil
 	case *big.Float:
 		f, _ := v.Float64()

@@ -66,6 +66,67 @@ func resolveYamlTags(v any) (any, error) {
 	}
 }
 
+// containsYamlTags reports whether any string in the value tree is a YAML tag
+// that resolveYamlTags would resolve (e.g. "!env VAR").
+func containsYamlTags(v any) bool {
+	switch val := v.(type) {
+	case string:
+		return strings.HasPrefix(val, "!env ")
+	case *OrderedMap:
+		for _, e := range val.Entries() {
+			if containsYamlTags(e.Value) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, v := range val {
+			if containsYamlTags(v) {
+				return true
+			}
+		}
+	case []any:
+		for _, v := range val {
+			if containsYamlTags(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resolveYamlTagsLenient is like resolveYamlTags, but leaves tags that cannot be
+// resolved (e.g. referencing an unset environment variable) unchanged instead of
+// returning an error. It always returns a new value tree.
+func resolveYamlTagsLenient(v any) any {
+	switch val := v.(type) {
+	case string:
+		if resolved, err := resolveTagString(val); err == nil {
+			return resolved
+		}
+		return val
+	case *OrderedMap:
+		result := NewOrderedMap(val.Len())
+		for _, e := range val.Entries() {
+			result.Set(e.Key, resolveYamlTagsLenient(e.Value))
+		}
+		return result
+	case map[string]any:
+		result := make(map[string]any, len(val))
+		for k, v := range val {
+			result[k] = resolveYamlTagsLenient(v)
+		}
+		return result
+	case []any:
+		result := make([]any, len(val))
+		for i, v := range val {
+			result[i] = resolveYamlTagsLenient(v)
+		}
+		return result
+	default:
+		return v
+	}
+}
+
 // resolveTagString checks if a string contains a known YAML tag prefix and resolves it.
 func resolveTagString(s string) (any, error) {
 	if strings.HasPrefix(s, "!env ") {

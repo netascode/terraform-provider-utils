@@ -49,6 +49,8 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. " +
 			"Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; " +
 			"scalar values and types may otherwise differ across levels, with the more specific level taking precedence.\n\n" +
+			"The `raw` output keeps `!env` tags unresolved, also where variables with `!env` tags are used in templates, " +
+			"while the `resolved` output resolves them, so that variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`).\n\n" +
 			"~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.\n\n" +
 			"## Template Functions\n\n" +
 			"The following functions are available inside `${}` template expressions in model templates, " +
@@ -121,98 +123,18 @@ func (r RenderDeviceConfigsFunction) Run(ctx context.Context, req function.RunRe
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	// 1. YAML decode + merge (preserving !env tags as literal strings)
-	merged := NewOrderedMap(0)
-	for _, yamlStr := range yamlStrings {
-		decoded, err := yamlDecode(yamlStr)
-		if err != nil {
-			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error decoding YAML string: "+err.Error()))
-			return
-		}
-		if decoded != nil {
-			if _, err := MergeMaps(decoded, merged, true); err != nil {
-				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging YAML string: "+err.Error()))
-				return
-			}
-		}
-	}
-
-	// 2. Merge HCL model var on top
-	modelNative, err := convertDynamicToNative(modelDynamic)
+	// 1-4. Merge YAML strings, HCL model and defaults
+	model, defaults, err := mergeRenderInputs(yamlStrings, modelDynamic, defaultsYaml)
 	if err != nil {
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error converting model: "+err.Error()))
-		return
-	}
-	if modelNative != nil {
-		if _, err := MergeMaps(modelNative, merged, true); err != nil {
-			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging model: "+err.Error()))
-			return
-		}
-	}
-
-	// 3. Defaults merge: extract user defaults from model, merge with module defaults
-	defaults := make(map[string]any)
-	if defaultsYaml != "" {
-		moduleDefaults, err := yamlDecode(defaultsYaml)
-		if err != nil {
-			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error decoding defaults YAML: "+err.Error()))
-			return
-		}
-		if moduleDefaults != nil {
-			// Resolve !env tags in defaults (they may reference env vars)
-			moduleDefaults, err = resolveYamlTags(moduleDefaults)
-			if err != nil {
-				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error resolving defaults YAML tags: "+err.Error()))
-				return
-			}
-		}
-		// Extract "defaults" key from module defaults YAML
-		var moduleDefaultsVal any = NewOrderedMap(0)
-		if md, ok := moduleDefaults.(*OrderedMap); ok {
-			if v, ok := md.Get("defaults"); ok {
-				moduleDefaultsVal = v
-			}
-		}
-		// Extract user defaults from merged model (may be *OrderedMap or map[string]any)
-		var userDefaultsVal any
-		if v, ok := merged.Get("defaults"); ok {
-			userDefaultsVal = v
-		}
-		// Merge user defaults on top of module defaults (user wins)
-		if userDefaultsVal != nil {
-			if _, err := MergeMaps(userDefaultsVal, moduleDefaultsVal, true); err != nil {
-				resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error merging defaults: "+err.Error()))
-				return
-			}
-		}
-		// Convert to map[string]any
-		if d, ok := orderedMapToPlainMap(moduleDefaultsVal).(map[string]any); ok {
-			defaults = d
-		}
-	}
-	// Remove "defaults" key from model
-	merged.Delete("defaults")
-
-	// 4. Convert merged model to map[string]any
-	model, ok := orderedMapToPlainMap(merged).(map[string]any)
-	if !ok {
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Model must be a map/object"))
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error "+err.Error()))
 		return
 	}
 
 	// 5. Extract file_templates from Dynamic
-	fileTemplatesNative, err := convertDynamicToNative(fileTemplatesDynamic)
+	fileTemplates, err := extractFileTemplates(fileTemplatesDynamic)
 	if err != nil {
-		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error converting file_templates: "+err.Error()))
+		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error "+err.Error()))
 		return
-	}
-	fileTemplates := make(map[string]string)
-	if ftMap, ok := fileTemplatesNative.(map[string]any); ok {
-		for k, v := range ftMap {
-			if s, ok := v.(string); ok {
-				fileTemplates[k] = s
-			}
-		}
 	}
 
 	// 6. Discover architecture and build provider_devices
@@ -224,8 +146,9 @@ func (r RenderDeviceConfigsFunction) Run(ctx context.Context, req function.RunRe
 	defaultManaged := getBoolVal(getMapVal(getMapVal(defaults, arch), "devices"), "managed", true)
 	providerDevices := buildProviderDevices(model, arch, defaultManaged)
 
-	// 7. Run the render pipeline
-	result, err := renderDeviceConfigs(model, fileTemplates, managedDevicesTF, managedGroupsTF, defaults)
+	// 7. Run the render pipeline with !env tags preserved in variables, so that
+	// no secrets end up in the raw output
+	result, err := renderDeviceConfigs(model, fileTemplates, managedDevicesTF, managedGroupsTF, defaults, false)
 	if err != nil {
 		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error rendering device configs: "+err.Error()))
 		return
@@ -239,8 +162,19 @@ func (r RenderDeviceConfigsFunction) Run(ctx context.Context, req function.RunRe
 		return
 	}
 
-	// 9. Produce resolved output (resolve !env tags, strip nulls)
-	resolvedNative, err := resolveYamlTags(result)
+	// 9. Produce resolved output: run the render pipeline again with !env tags
+	// resolved in variables, so that they can be used within strings
+	// (e.g. "Bearer ${token}"), then resolve remaining !env tags, strip nulls
+	// (skipped if the model contains no tags, as the result would be identical)
+	resolvedRender := result
+	if containsYamlTags(model) {
+		resolvedRender, err = renderDeviceConfigs(model, fileTemplates, managedDevicesTF, managedGroupsTF, defaults, true)
+		if err != nil {
+			resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error rendering device configs: "+resolvedRenderError(err, model).Error()))
+			return
+		}
+	}
+	resolvedNative, err := resolveYamlTags(resolvedRender)
 	if err != nil {
 		resp.Error = function.ConcatFuncErrors(resp.Error, function.NewFuncError("Error resolving YAML tags: "+err.Error()))
 		return
@@ -295,10 +229,33 @@ type renderContext struct {
 	defaultStage    string
 	defaultManaged  bool
 	defaultConfig   map[string]any // defaults[arch].devices.configuration
+	// resolveVarTags resolves !env tags in template variables (including GLOBAL)
+	// before rendering, so that they can be used within strings (e.g. "Bearer ${token}").
+	resolveVarTags bool
+	globalVar      any // value of the GLOBAL variable (archConfig, with tags resolved if resolveVarTags)
+}
+
+// varsToCty converts template variables to cty values. If resolveVarTags is set,
+// !env tags in all variables except GLOBAL (which is resolved once in
+// extractRenderContext) are resolved, leaving tags of unset environment variables unchanged.
+func (rctx *renderContext) varsToCty(vars map[string]any) (map[string]cty.Value, error) {
+	if rctx.resolveVarTags {
+		resolved := make(map[string]any, len(vars))
+		for k, v := range vars {
+			if k == "GLOBAL" {
+				resolved[k] = v
+				continue
+			}
+			resolved[k] = resolveYamlTagsLenient(v)
+		}
+		vars = resolved
+	}
+	return nativeToCtyMap(vars)
 }
 
 // renderDeviceConfigs is the core pipeline.
-func renderDeviceConfigs(model map[string]any, fileTemplates map[string]string, managedDevices, managedGroups []string, defaults map[string]any) (map[string]any, error) {
+// If resolveVarTags is set, !env tags in template variables are resolved before rendering.
+func renderDeviceConfigs(model map[string]any, fileTemplates map[string]string, managedDevices, managedGroups []string, defaults map[string]any, resolveVarTags bool) (map[string]any, error) {
 	// 1. Discover architecture
 	arch, err := discoverArchitecture(model)
 	if err != nil {
@@ -306,7 +263,7 @@ func renderDeviceConfigs(model map[string]any, fileTemplates map[string]string, 
 	}
 
 	// 2. Extract context
-	rctx, err := extractRenderContext(model, arch, fileTemplates, defaults)
+	rctx, err := extractRenderContext(model, arch, fileTemplates, defaults, resolveVarTags)
 	if err != nil {
 		return nil, err
 	}
@@ -354,8 +311,12 @@ func discoverArchitecture(model map[string]any) (string, error) {
 	return arch, nil
 }
 
-func extractRenderContext(model map[string]any, arch string, fileTemplates map[string]string, defaults map[string]any) (*renderContext, error) {
+func extractRenderContext(model map[string]any, arch string, fileTemplates map[string]string, defaults map[string]any, resolveVarTags bool) (*renderContext, error) {
 	archConfig := getMapVal(model, arch)
+	var globalVar any = archConfig
+	if resolveVarTags {
+		globalVar = resolveYamlTagsLenient(archConfig)
+	}
 	defaultsArch := getMapVal(defaults, arch)
 
 	// Parse templates into lookup map
@@ -382,6 +343,8 @@ func extractRenderContext(model map[string]any, arch string, fileTemplates map[s
 		defaultStage:    getStringVal(getMapVal(defaultsArch, "templates"), "stage", "post"),
 		defaultManaged:  getBoolVal(getMapVal(defaultsArch, "devices"), "managed", true),
 		defaultConfig:   getMapVal(getMapVal(defaultsArch, "devices"), "configuration"),
+		resolveVarTags:  resolveVarTags,
+		globalVar:       globalVar,
 	}, nil
 }
 
@@ -456,7 +419,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 
 	// 4a. Build device variables (shallow merge)
 	deviceVars := buildDeviceVariables(rctx, device)
-	ctyVars, err := nativeToCtyMap(deviceVars)
+	ctyVars, err := rctx.varsToCty(deviceVars)
 	if err != nil {
 		return nil, fmt.Errorf("converting variables: %w", err)
 	}
@@ -477,7 +440,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		}
 		// Group file templates with extra group variables
 		groupVars := mergeShallow(deviceVars, getMapVal(dg, "variables"))
-		groupCtyVars, err := nativeToCtyMap(groupVars)
+		groupCtyVars, err := rctx.varsToCty(groupVars)
 		if err != nil {
 			return nil, fmt.Errorf("group %q vars: %w", getStringVal(dg, "name", ""), err)
 		}
@@ -562,7 +525,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		return nil, fmt.Errorf("device model templates: %w", err)
 	}
 	// 9. Device configuration
-	if _, err := MergeMaps(getMapVal(device, "configuration"), merged, true); err != nil {
+	if _, err := MergeMaps(deepCopy(getMapVal(device, "configuration")), merged, true); err != nil {
 		return nil, fmt.Errorf("device configuration: %w", err)
 	}
 
@@ -611,7 +574,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 
 func buildDeviceVariables(rctx *renderContext, device map[string]any) map[string]any {
 	result := map[string]any{
-		"GLOBAL": rctx.archConfig,
+		"GLOBAL": rctx.globalVar,
 	}
 	// Global variables
 	mergeShallowInto(result, getMapVal(rctx.global, "variables"))
@@ -910,7 +873,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 		}
 		dgName := getStringVal(dg, "name", "")
 		groupVars := mergeShallow(deviceVars, getMapVal(dg, "variables"))
-		groupCtyVars, err := nativeToCtyMap(groupVars)
+		groupCtyVars, err := rctx.varsToCty(groupVars)
 		if err != nil {
 			return nil, fmt.Errorf("group %q cli vars: %w", dgName, err)
 		}
