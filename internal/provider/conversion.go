@@ -20,6 +20,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -171,8 +172,14 @@ func convertNativeToDynamicWithDepth(ctx context.Context, val any, depth int) (t
 	case int64:
 		return types.DynamicValue(types.NumberValue(big.NewFloat(float64(v)))), nil
 	case float32:
+		if math.IsNaN(float64(v)) {
+			return types.DynamicNull(), fmt.Errorf("NaN is not a supported number value")
+		}
 		return types.DynamicValue(types.NumberValue(big.NewFloat(float64(v)))), nil
 	case float64:
+		if math.IsNaN(v) {
+			return types.DynamicNull(), fmt.Errorf("NaN is not a supported number value")
+		}
 		return types.DynamicValue(types.NumberValue(big.NewFloat(v))), nil
 	case bool:
 		return types.DynamicValue(types.BoolValue(v)), nil
