@@ -690,3 +690,99 @@ func TestRenderMerakiModelFunction_MissingTemplate(t *testing.T) {
 		},
 	})
 }
+
+// GLOBAL (the whole meraki section) is converted once per render, not once per
+// network or device with templates.
+func TestRenderMerakiModel_GlobalConvertedOnce(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: net
+        type: model
+        configuration:
+          notes: "${GLOBAL.domains[0].name}"
+    devices:
+      - name: dev
+        type: model
+        configuration:
+          notes: "${GLOBAL.domains[0].organizations[0].name}"
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+              devices:
+                - name: d1
+                  templates: [dev]
+                - name: d2
+                  templates: [dev]
+            - name: Net2
+              templates: [net]
+              devices:
+                - name: d3
+                  templates: [dev]
+                - name: d4
+`)
+	for _, resolve := range []bool{false, true} {
+		result, rctx, err := renderMerakiModelContext(model, nil, resolve)
+		if err != nil {
+			t.Fatalf("resolve=%v: %v", resolve, err)
+		}
+		if rctx.globalCtyConversions != 1 {
+			t.Errorf("resolve=%v: GLOBAL converted %d times for 2 networks and 3 devices with templates, want 1", resolve, rctx.globalCtyConversions)
+		}
+		networks := getSliceVal(toMapStringAny(getSliceVal(toMapStringAny(getSliceVal(getMapVal(result, "meraki"), "domains")[0]), "organizations")[0]), "networks")
+		for _, n := range networks {
+			nm := toMapStringAny(n)
+			if got := nm["notes"]; got != "EMEA" {
+				t.Errorf("resolve=%v network %v: notes = %v, want EMEA", resolve, nm["name"], got)
+			}
+			for _, d := range getSliceVal(nm, "devices") {
+				dm := toMapStringAny(d)
+				want := any("Org1")
+				if dm["name"] == "d4" {
+					want = nil // no templates
+				}
+				if got := dm["notes"]; got != want {
+					t.Errorf("resolve=%v device %v: notes = %v, want %v", resolve, dm["name"], got, want)
+				}
+			}
+		}
+	}
+}
+
+// Without networks or devices referencing templates, variables (incl. GLOBAL)
+// are not converted at all.
+func TestRenderMerakiModel_NoTemplatesNoConversion(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    devices:
+      - name: unused
+        type: model
+        configuration:
+          notes: "${GLOBAL.domains[0].name}"
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              variables:
+                site: DC1
+              devices:
+                - name: d1
+                  variables:
+                    id: 1
+`)
+	_, rctx, err := renderMerakiModelContext(model, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rctx.globalCtyConversions != 0 {
+		t.Errorf("GLOBAL converted %d times without any template in use, want 0", rctx.globalCtyConversions)
+	}
+}

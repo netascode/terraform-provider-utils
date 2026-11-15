@@ -237,9 +237,29 @@ type renderContext struct {
 	// before rendering, so that they can be used within strings (e.g. "Bearer ${token}").
 	resolveVarTags bool
 	globalVar      any // value of the GLOBAL variable (archConfig, with tags resolved if resolveVarTags)
+	// GLOBAL as a cty value, converted at most once per render on first use (see globalCtyValue)
+	globalCty     cty.Value
+	globalCtyErr  error
+	globalCtyDone bool
+	// globalCtyConversions counts conversions of GLOBAL (for tests)
+	globalCtyConversions int
 }
 
-// varsToCty converts template variables to cty values. If resolveVarTags is set,
+// globalCtyValue returns the GLOBAL variable (the whole architecture config) as
+// a cty value. It is converted once per render, on first use, and shared by all
+// devices and device groups: cty values are immutable, and converting the whole
+// model per device made rendering time grow with devices × model size.
+func (rctx *renderContext) globalCtyValue() (cty.Value, error) {
+	if !rctx.globalCtyDone {
+		rctx.globalCty, rctx.globalCtyErr = nativeToCty(rctx.globalVar)
+		rctx.globalCtyDone = true
+		rctx.globalCtyConversions++
+	}
+	return rctx.globalCty, rctx.globalCtyErr
+}
+
+// varsToCty converts template variables to cty values and adds GLOBAL, unless
+// a user variable named GLOBAL takes precedence. If resolveVarTags is set,
 // !env tags in all variables except GLOBAL (which is resolved once in
 // extractRenderContext) are resolved, leaving tags of unset environment variables unchanged.
 func (rctx *renderContext) varsToCty(vars map[string]any) (map[string]cty.Value, error) {
@@ -254,7 +274,53 @@ func (rctx *renderContext) varsToCty(vars map[string]any) (map[string]cty.Value,
 		}
 		vars = resolved
 	}
-	return nativeToCtyMap(vars)
+	result, err := nativeToCtyMap(vars)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := result["GLOBAL"]; !ok {
+		global, err := rctx.globalCtyValue()
+		if err != nil {
+			return nil, fmt.Errorf("key %q: %w", "GLOBAL", err)
+		}
+		result["GLOBAL"] = global
+	}
+	return result, nil
+}
+
+// templateVars holds the template variables of a device or device group and
+// converts them to cty on first use, so that devices without templates or
+// ${...} expressions skip the conversion entirely, and each device group's
+// variables are converted once per device.
+type templateVars struct {
+	rctx   *renderContext
+	label  string // error context, e.g. `group "leafs" vars`
+	native map[string]any
+	values map[string]cty.Value
+	err    error
+	done   bool
+}
+
+func newTemplateVars(rctx *renderContext, label string, native map[string]any) *templateVars {
+	return &templateVars{rctx: rctx, label: label, native: native}
+}
+
+func (v *templateVars) get() (map[string]cty.Value, error) {
+	if !v.done {
+		v.values, v.err = v.rctx.varsToCty(v.native)
+		if v.err != nil {
+			v.err = fmt.Errorf("%s: %w", v.label, v.err)
+		}
+		v.done = true
+	}
+	return v.values, v.err
+}
+
+// matchedGroup is a device group the device belongs to, with its template variables.
+type matchedGroup struct {
+	group map[string]any
+	name  string
+	vars  *templateVars
 }
 
 // renderDeviceConfigs is the core pipeline.
@@ -421,11 +487,20 @@ func deviceMatchesGroup(device map[string]any, group map[string]any) bool {
 func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]any, error) {
 	deviceName := getStringVal(device, "name", "")
 
-	// 4a. Build device variables (shallow merge)
+	// 4a. Build device variables (shallow merge), converted to cty on first use
 	deviceVars := buildDeviceVariables(rctx, device)
-	ctyVars, err := rctx.varsToCty(deviceVars)
-	if err != nil {
-		return nil, fmt.Errorf("converting variables: %w", err)
+	ctyVars := newTemplateVars(rctx, "converting variables", deviceVars)
+
+	// Device groups of this device, each with its variables on top of the device variables
+	var groups []matchedGroup
+	for _, dgRaw := range rctx.deviceGroups {
+		dg, ok := dgRaw.(map[string]any)
+		if !ok || !deviceMatchesGroup(device, dg) {
+			continue
+		}
+		name := getStringVal(dg, "name", "")
+		groupVars := mergeShallow(deviceVars, getMapVal(dg, "variables"))
+		groups = append(groups, matchedGroup{group: dg, name: name, vars: newTemplateVars(rctx, fmt.Sprintf("group %q vars", name), groupVars)})
 	}
 
 	// 4b. Process file templates
@@ -437,33 +512,23 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	var groupFileTmpls []map[string]any
 	var groupModelTmpls []map[string]any
 	var groupConfigs []map[string]any
-	for _, dgRaw := range rctx.deviceGroups {
-		dg, ok := dgRaw.(map[string]any)
-		if !ok || !deviceMatchesGroup(device, dg) {
-			continue
-		}
+	for _, g := range groups {
 		// Group file templates with extra group variables
-		groupVars := mergeShallow(deviceVars, getMapVal(dg, "variables"))
-		groupCtyVars, err := rctx.varsToCty(groupVars)
+		ft, err := processFileTemplates(rctx, getStringSlice(g.group, "templates"), g.vars)
 		if err != nil {
-			return nil, fmt.Errorf("group %q vars: %w", getStringVal(dg, "name", ""), err)
-		}
-
-		ft, err := processFileTemplates(rctx, getStringSlice(dg, "templates"), groupCtyVars)
-		if err != nil {
-			return nil, fmt.Errorf("group %q file templates: %w", getStringVal(dg, "name", ""), err)
+			return nil, fmt.Errorf("group %q file templates: %w", g.name, err)
 		}
 		groupFileTmpls = append(groupFileTmpls, ft...)
 
 		// Group model templates
-		mt, err := processModelTemplates(rctx, getStringSlice(dg, "templates"), groupCtyVars)
+		mt, err := processModelTemplates(rctx, getStringSlice(g.group, "templates"), g.vars)
 		if err != nil {
-			return nil, fmt.Errorf("group %q model templates: %w", getStringVal(dg, "name", ""), err)
+			return nil, fmt.Errorf("group %q model templates: %w", g.name, err)
 		}
 		groupModelTmpls = append(groupModelTmpls, mt)
 
 		// Group configuration
-		if cfg := getMapVal(dg, "configuration"); len(cfg) > 0 {
+		if cfg := getMapVal(g.group, "configuration"); len(cfg) > 0 {
 			groupConfigs = append(groupConfigs, cfg)
 		}
 	}
@@ -554,7 +619,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	}
 
 	// 4g. CLI templates
-	cliTemplates, err := collectCliTemplates(rctx, device, deviceVars, ctyVars)
+	cliTemplates, err := collectCliTemplates(rctx, device, ctyVars, groups)
 	if err != nil {
 		return nil, fmt.Errorf("cli templates: %w", err)
 	}
@@ -576,10 +641,11 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	return output, nil
 }
 
+// buildDeviceVariables merges global, device group and device variables. GLOBAL
+// is not part of the result: varsToCty adds it as a cty value converted once per
+// render (a user variable named GLOBAL takes precedence).
 func buildDeviceVariables(rctx *renderContext, device map[string]any) map[string]any {
-	result := map[string]any{
-		"GLOBAL": rctx.globalVar,
-	}
+	result := map[string]any{}
 	// Global variables
 	mergeShallowInto(result, getMapVal(rctx.global, "variables"))
 	// Device group variables (in order)
@@ -595,7 +661,7 @@ func buildDeviceVariables(rctx *renderContext, device map[string]any) map[string
 	return result
 }
 
-func processFileTemplates(rctx *renderContext, templateNames []string, vars map[string]cty.Value) ([]map[string]any, error) {
+func processFileTemplates(rctx *renderContext, templateNames []string, vars *templateVars) ([]map[string]any, error) {
 	var results []map[string]any
 	for _, name := range templateNames {
 		tmpl, ok := rctx.templates[name]
@@ -607,7 +673,11 @@ func processFileTemplates(rctx *renderContext, templateNames []string, vars map[
 		if !ok {
 			return nil, fmt.Errorf("file template %q (path %q) not found in file_templates parameter", name, filePath)
 		}
-		rendered, err := renderHCLTemplate(content, vars)
+		values, err := vars.get()
+		if err != nil {
+			return nil, err
+		}
+		rendered, err := renderHCLTemplate(content, values)
 		if err != nil {
 			return nil, fmt.Errorf("rendering file template %q: %w", name, err)
 		}
@@ -622,7 +692,7 @@ func processFileTemplates(rctx *renderContext, templateNames []string, vars map[
 	return results, nil
 }
 
-func processModelTemplates(rctx *renderContext, templateNames []string, vars map[string]cty.Value) (map[string]any, error) {
+func processModelTemplates(rctx *renderContext, templateNames []string, vars *templateVars) (map[string]any, error) {
 	merged := make(map[string]any)
 	for _, name := range templateNames {
 		tmpl, ok := rctx.templates[name]
@@ -648,7 +718,8 @@ func processModelTemplates(rctx *renderContext, templateNames []string, vars map
 
 // renderTemplateValues walks a native value tree and renders HCL template
 // expressions in string values. Non-string values are returned unchanged.
-func renderTemplateValues(v any, vars map[string]cty.Value) (any, error) {
+// Variables are only converted if a string contains a template expression.
+func renderTemplateValues(v any, vars *templateVars) (any, error) {
 	switch val := v.(type) {
 	case map[string]any:
 		result := make(map[string]any, len(val))
@@ -674,13 +745,17 @@ func renderTemplateValues(v any, vars map[string]cty.Value) (any, error) {
 		if !strings.Contains(val, "${") {
 			return val, nil
 		}
-		return renderHCLTemplateValue(val, vars)
+		values, err := vars.get()
+		if err != nil {
+			return nil, err
+		}
+		return renderHCLTemplateValue(val, values)
 	default:
 		return v, nil
 	}
 }
 
-func templatePassOnMap(m map[string]any, vars map[string]cty.Value) (map[string]any, error) {
+func templatePassOnMap(m map[string]any, vars *templateVars) (map[string]any, error) {
 	if len(m) == 0 {
 		return m, nil
 	}
@@ -694,7 +769,7 @@ func templatePassOnMap(m map[string]any, vars map[string]cty.Value) (map[string]
 	return m, nil
 }
 
-func resolveInterfaceGroupConfigs(rctx *renderContext, vars map[string]cty.Value) (map[string]map[string]any, error) {
+func resolveInterfaceGroupConfigs(rctx *renderContext, vars *templateVars) (map[string]map[string]any, error) {
 	igConfigs := make(map[string]map[string]any)
 	for _, igRaw := range rctx.interfaceGroups {
 		ig, ok := igRaw.(map[string]any)
@@ -844,8 +919,16 @@ func applyDefaults(config map[string]any, defaults map[string]any) {
 	}
 }
 
-func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars map[string]any, ctyVars map[string]cty.Value) ([]any, error) {
+func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templateVars, groups []matchedGroup) ([]any, error) {
 	var result []any
+
+	render := func(content string, vars *templateVars) (string, error) {
+		values, err := vars.get()
+		if err != nil {
+			return "", err
+		}
+		return renderHCLTemplate(content, values)
+	}
 
 	// Global CLI templates
 	for _, name := range getStringSlice(rctx.global, "templates") {
@@ -857,7 +940,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 		if content == "" {
 			continue
 		}
-		rendered, err := renderHCLTemplate(content, ctyVars)
+		rendered, err := render(content, vars)
 		if err != nil {
 			return nil, fmt.Errorf("global cli template %q: %w", name, err)
 		}
@@ -870,17 +953,8 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 	}
 
 	// Group CLI templates
-	for _, dgRaw := range rctx.deviceGroups {
-		dg, ok := dgRaw.(map[string]any)
-		if !ok || !deviceMatchesGroup(device, dg) {
-			continue
-		}
-		dgName := getStringVal(dg, "name", "")
-		groupVars := mergeShallow(deviceVars, getMapVal(dg, "variables"))
-		groupCtyVars, err := rctx.varsToCty(groupVars)
-		if err != nil {
-			return nil, fmt.Errorf("group %q cli vars: %w", dgName, err)
-		}
+	for _, g := range groups {
+		dg, dgName := g.group, g.name
 		for _, name := range getStringSlice(dg, "templates") {
 			tmpl, ok := rctx.templates[name]
 			if !ok || getStringVal(tmpl, "type", "") != "cli" {
@@ -890,7 +964,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 			if content == "" {
 				continue
 			}
-			rendered, err := renderHCLTemplate(content, groupCtyVars)
+			rendered, err := render(content, g.vars)
 			if err != nil {
 				return nil, fmt.Errorf("group %q cli template %q: %w", dgName, name, err)
 			}
@@ -913,7 +987,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, deviceVars 
 		if content == "" {
 			continue
 		}
-		rendered, err := renderHCLTemplate(content, ctyVars)
+		rendered, err := render(content, vars)
 		if err != nil {
 			return nil, fmt.Errorf("device cli template %q: %w", name, err)
 		}

@@ -215,8 +215,26 @@ type merakiRenderContext struct {
 	networkTemplates map[string]map[string]any
 	deviceTemplates  map[string]map[string]any
 	fileTemplates    map[string]string
-	global           cty.Value
 	resolveVarTags   bool
+	globalVar        any // value of the GLOBAL variable (the meraki section, with tags resolved if resolveVarTags)
+	// GLOBAL as a cty value, converted at most once per render, when the first
+	// network or device with templates is rendered (see globalCtyValue)
+	globalCty     cty.Value
+	globalCtyErr  error
+	globalCtyDone bool
+	// globalCtyConversions counts conversions of GLOBAL (for tests)
+	globalCtyConversions int
+}
+
+// globalCtyValue returns the GLOBAL variable as a cty value, converting it on
+// first use only, so that models without templates skip the conversion.
+func (rctx *merakiRenderContext) globalCtyValue() (cty.Value, error) {
+	if !rctx.globalCtyDone {
+		rctx.globalCty, rctx.globalCtyErr = nativeToCty(rctx.globalVar)
+		rctx.globalCtyConversions++
+		rctx.globalCtyDone = true
+	}
+	return rctx.globalCty, rctx.globalCtyErr
 }
 
 // renderMerakiModel applies network and device templates to the merged model and
@@ -224,33 +242,36 @@ type merakiRenderContext struct {
 // !env tags in template variables (including GLOBAL) are resolved before rendering,
 // leaving tags of unset environment variables unchanged.
 func renderMerakiModel(model map[string]any, fileTemplates map[string]string, resolveVarTags bool) (map[string]any, error) {
+	result, _, err := renderMerakiModelContext(model, fileTemplates, resolveVarTags)
+	return result, err
+}
+
+// renderMerakiModelContext is renderMerakiModel, also returning the render
+// context for inspection in tests.
+func renderMerakiModelContext(model map[string]any, fileTemplates map[string]string, resolveVarTags bool) (map[string]any, *merakiRenderContext, error) {
 	meraki := getMapVal(model, "meraki")
 
 	templates := getMapVal(meraki, "templates")
 	networkTemplates, err := indexMerakiTemplates(getSliceVal(templates, "networks"))
 	if err != nil {
-		return nil, fmt.Errorf("network templates: %w", err)
+		return nil, nil, fmt.Errorf("network templates: %w", err)
 	}
 	deviceTemplates, err := indexMerakiTemplates(getSliceVal(templates, "devices"))
 	if err != nil {
-		return nil, fmt.Errorf("device templates: %w", err)
+		return nil, nil, fmt.Errorf("device templates: %w", err)
 	}
 
 	var globalVar any = meraki
 	if resolveVarTags {
 		globalVar = resolveYamlTagsLenient(meraki)
 	}
-	global, err := nativeToCty(globalVar)
-	if err != nil {
-		return nil, fmt.Errorf("converting GLOBAL variable: %w", err)
-	}
 
 	rctx := &merakiRenderContext{
 		networkTemplates: networkTemplates,
 		deviceTemplates:  deviceTemplates,
 		fileTemplates:    fileTemplates,
-		global:           global,
 		resolveVarTags:   resolveVarTags,
+		globalVar:        globalVar,
 	}
 
 	result := make(map[string]any, len(meraki))
@@ -270,14 +291,14 @@ func renderMerakiModel(model map[string]any, fileTemplates map[string]string, re
 			}
 			rendered, err := renderMerakiDomain(rctx, domain)
 			if err != nil {
-				return nil, fmt.Errorf("domain %q: %w", getStringVal(domain, "name", ""), err)
+				return nil, nil, fmt.Errorf("domain %q: %w", getStringVal(domain, "name", ""), err)
 			}
 			renderedDomains[i] = rendered
 		}
 		result["domains"] = renderedDomains
 	}
 
-	return map[string]any{"meraki": result}, nil
+	return map[string]any{"meraki": result}, rctx, nil
 }
 
 // indexMerakiTemplates builds a name -> template map and validates the templates.
@@ -360,12 +381,7 @@ func renderMerakiOrganization(rctx *merakiRenderContext, org map[string]any) (ma
 
 func renderMerakiNetwork(rctx *merakiRenderContext, network map[string]any) (map[string]any, error) {
 	// 1. Apply network templates with GLOBAL + network variables
-	networkVars := getMapVal(network, "variables")
-	ctyVars, err := merakiTemplateVars(rctx, networkVars)
-	if err != nil {
-		return nil, err
-	}
-	rendered, err := applyMerakiTemplates(rctx, network, rctx.networkTemplates, ctyVars)
+	rendered, err := applyMerakiTemplates(rctx, network, rctx.networkTemplates, getMapVal(network, "variables"))
 	if err != nil {
 		return nil, err
 	}
@@ -382,11 +398,7 @@ func renderMerakiNetwork(rctx *merakiRenderContext, network map[string]any) (map
 			continue
 		}
 		deviceVars := mergeShallow(renderedNetworkVars, getMapVal(device, "variables"))
-		ctyVars, err := merakiTemplateVars(rctx, deviceVars)
-		if err != nil {
-			return nil, fmt.Errorf("device %q: %w", merakiDeviceName(device), err)
-		}
-		renderedDevice, err := applyMerakiTemplates(rctx, device, rctx.deviceTemplates, ctyVars)
+		renderedDevice, err := applyMerakiTemplates(rctx, device, rctx.deviceTemplates, deviceVars)
 		if err != nil {
 			return nil, fmt.Errorf("device %q: %w", merakiDeviceName(device), err)
 		}
@@ -416,18 +428,27 @@ func merakiTemplateVars(rctx *merakiRenderContext, vars map[string]any) (map[str
 		return nil, fmt.Errorf("converting variables: %w", err)
 	}
 	if _, ok := ctyVars["GLOBAL"]; !ok {
-		ctyVars["GLOBAL"] = rctx.global
+		global, err := rctx.globalCtyValue()
+		if err != nil {
+			return nil, fmt.Errorf("converting GLOBAL variable: %w", err)
+		}
+		ctyVars["GLOBAL"] = global
 	}
 	return ctyVars, nil
 }
 
 // applyMerakiTemplates renders the templates referenced by obj["templates"], merges
 // them in list order and merges obj on top. The result is a new plain map, obj is
-// not modified.
-func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, templates map[string]map[string]any, vars map[string]cty.Value) (map[string]any, error) {
+// not modified. The variables (incl. GLOBAL) are only converted to cty if obj
+// references templates.
+func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, templates map[string]map[string]any, nativeVars map[string]any) (map[string]any, error) {
 	templateNames := getStringSlice(obj, "templates")
 	if len(templateNames) == 0 {
 		return deepCopy(obj).(map[string]any), nil
+	}
+	vars, err := merakiTemplateVars(rctx, nativeVars)
+	if err != nil {
+		return nil, err
 	}
 
 	merged := make(map[string]any)
