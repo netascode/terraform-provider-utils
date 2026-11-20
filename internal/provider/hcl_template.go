@@ -42,7 +42,7 @@ func renderHCLTemplate(tmpl string, vars map[string]cty.Value) (string, error) {
 
 	ctx := &hcl.EvalContext{
 		Variables: vars,
-		Functions: hclTemplateFunctions(),
+		Functions: templateFunctions,
 	}
 
 	val, diags := expr.Value(ctx)
@@ -69,7 +69,7 @@ func renderHCLTemplateValue(tmpl string, vars map[string]cty.Value) (any, error)
 
 	ctx := &hcl.EvalContext{
 		Variables: vars,
-		Functions: hclTemplateFunctions(),
+		Functions: templateFunctions,
 	}
 
 	val, diags := expr.Value(ctx)
@@ -173,6 +173,11 @@ func nativeToCty(val any) (cty.Value, error) {
 		return cty.NilVal, fmt.Errorf("unsupported type %T", val)
 	}
 }
+
+// templateFunctions is the function map shared by all template evaluations.
+// It is built once, as building it for every rendered template string was a
+// noticeable part of the render time; it is only read (also concurrently).
+var templateFunctions = hclTemplateFunctions()
 
 // hclTemplateFunctions returns the function map for HCL template evaluation.
 // Includes go-cty stdlib functions, HCL try/can, and manually implemented extras.

@@ -7,6 +7,10 @@ description: |-
 
 # Changelog
 
+## Unreleased
+
+- Improve `render_device_configs` and `render_meraki_model` performance with many devices or large models
+
 ## 2.2.0
 
 - Add `render_meraki_model` function, which merges a Meraki Network-as-Code model and applies network (`meraki.templates.networks`) and device (`meraki.templates.devices`) templates, including `model` and `file` templates, `GLOBAL` variable and inheritance of network variables in device templates
