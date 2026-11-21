@@ -9,6 +9,9 @@ description: |-
 
 ## Unreleased
 
+- Add template inheritance (`templates` attribute of a template) to `render_meraki_model`
+- Add default variables (`variables` attribute of a template) to `render_meraki_model`
+- Ignore `templates` and `variables` within the `configuration` of templates in `render_meraki_model`
 - Improve `render_device_configs` and `render_meraki_model` performance with many devices or large models
 
 ## 2.2.0

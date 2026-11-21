@@ -150,9 +150,9 @@ meraki:
     networks:
       - name: net
         type: model
+        variables:
+          floor: "1"
         configuration:
-          variables:
-            floor: "1"
           devices:
             - name: from-template
               templates: [dev]
@@ -784,5 +784,629 @@ meraki:
 	}
 	if rctx.globalCtyConversions != 0 {
 		t.Errorf("GLOBAL converted %d times without any template in use, want 0", rctx.globalCtyConversions)
+	}
+}
+
+// --- Template inheritance and default variables ---
+
+func TestRenderMerakiModel_TemplateInheritance(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: base
+        type: model
+        configuration:
+          time_zone: UTC
+          notes: "base ${site}"
+          product_types: [appliance]
+      - name: branch
+        type: model
+        templates: [base]
+        configuration:
+          time_zone: Europe/Rome
+          product_types: [switch]
+      - name: small-branch
+        type: model
+        templates: [branch]
+        configuration:
+          product_types: [wireless]
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [small-branch]
+              variables:
+                site: rome
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, result)
+	if got := net["notes"]; got != "base rome" {
+		t.Errorf("notes: expected inherited from grandparent, got %v", got)
+	}
+	if got := net["time_zone"]; got != "Europe/Rome" {
+		t.Errorf("time_zone: child should override parent, got %v", got)
+	}
+	if got := net["product_types"]; !reflect.DeepEqual(got, []any{"appliance", "switch", "wireless"}) {
+		t.Errorf("product_types: expected lists merged in chain order, got %#v", got)
+	}
+	if got := getStringSlice(net, "templates"); !reflect.DeepEqual(got, []string{"small-branch"}) {
+		t.Errorf("templates: expected network's own list to be preserved, got %#v", got)
+	}
+}
+
+func TestMerakiTemplateSet_Expand(t *testing.T) {
+	set, err := indexMerakiTemplates(getSliceVal(getMapVal(getMapVal(mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - {name: base, type: model}
+      - {name: other, type: model}
+      - {name: a, type: model, templates: [base]}
+      - {name: b, type: model, templates: [other, base]}
+      - {name: c, type: model, templates: [a, b]}
+`), "meraki"), "templates"), "networks"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cases := []struct {
+		names []string
+		want  []string
+	}{
+		{[]string{"a"}, []string{"base", "a"}},
+		// b applies base after other (base wins), also when combined with a
+		{[]string{"b"}, []string{"other", "base", "b"}},
+		{[]string{"a", "b"}, []string{"other", "base", "a", "b"}},
+		{[]string{"b", "a"}, []string{"other", "base", "b", "a"}},
+		{[]string{"c"}, []string{"other", "base", "a", "b", "c"}},
+		{[]string{"base", "a"}, []string{"base", "a"}},
+		{[]string{"base", "base"}, []string{"base"}},
+		{[]string{"a", "a", "b"}, []string{"other", "base", "a", "b"}},
+	}
+	for _, tc := range cases {
+		got, err := set.expand(tc.names)
+		if err != nil {
+			t.Fatalf("expand(%v): unexpected error: %v", tc.names, err)
+		}
+		if !reflect.DeepEqual(got.templates, tc.want) {
+			t.Errorf("expand(%v) = %v, want %v", tc.names, got.templates, tc.want)
+		}
+	}
+
+	// Memoized by the referenced template names
+	first, _ := set.expand([]string{"a", "b"})
+	second, _ := set.expand([]string{"a", "b"})
+	if first != second {
+		t.Errorf("expand: expected memoized result")
+	}
+}
+
+func TestMerakiTemplateSet_ExpandPreservesParentOrder(t *testing.T) {
+	// b lists its parents as [q, p], so that p overrides q. The order must be
+	// kept when b is inherited together with a template that also inherits p.
+	set, err := indexMerakiTemplates(getSliceVal(getMapVal(getMapVal(mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - {name: p, type: model}
+      - {name: q, type: model}
+      - {name: a, type: model, templates: [p]}
+      - {name: b, type: model, templates: [q, p]}
+      - {name: c, type: model, templates: [a, b]}
+`), "meraki"), "templates"), "networks"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for names, want := range map[string][]string{
+		"b": {"q", "p", "b"},
+		"c": {"q", "p", "a", "b", "c"},
+	} {
+		got, err := set.expand([]string{names})
+		if err != nil {
+			t.Fatalf("expand(%s): unexpected error: %v", names, err)
+		}
+		if !reflect.DeepEqual(got.templates, want) {
+			t.Errorf("expand(%s) = %v, want %v", names, got.templates, want)
+		}
+	}
+}
+
+func TestRenderMerakiModel_TemplateDefaultVariables(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: base
+        type: model
+        variables:
+          syslog_port: 514
+          site: base-site
+          servers: [1.1.1.1]
+        configuration:
+          notes: "${site}:${syslog_port}:${servers[0]}:${role}"
+      - name: branch
+        type: model
+        templates: [base]
+        variables:
+          site: branch-site
+          role: branch
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Defaults
+              templates: [branch]
+            - name: Overridden
+              templates: [branch]
+              variables:
+                site: own-site
+                syslog_port: 1514
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	org := toMapStringAny(getSliceVal(toMapStringAny(getSliceVal(getMapVal(result, "meraki"), "domains")[0]), "organizations")[0])
+	networks := getSliceVal(org, "networks")
+	defaults := toMapStringAny(networks[0])
+	if got := defaults["notes"]; got != "branch-site:514:1.1.1.1:branch" {
+		t.Errorf("Defaults.notes: expected child defaults to override parent defaults, got %v", got)
+	}
+	wantVars := map[string]any{"syslog_port": 514, "site": "branch-site", "role": "branch", "servers": []any{"1.1.1.1"}}
+	if got := getMapVal(defaults, "variables"); !reflect.DeepEqual(got, wantVars) {
+		t.Errorf("Defaults.variables: expected template defaults, got %#v", got)
+	}
+	overridden := toMapStringAny(networks[1])
+	if got := overridden["notes"]; got != "own-site:1514:1.1.1.1:branch" {
+		t.Errorf("Overridden.notes: expected network variables to win, got %v", got)
+	}
+	if got := getMapVal(overridden, "variables")["site"]; got != "own-site" {
+		t.Errorf("Overridden.variables.site: expected network variable, got %v", got)
+	}
+
+	// The template definitions must not be aliased by the result
+	getSliceVal(getMapVal(defaults, "variables"), "servers")[0] = "changed"
+	base := toMapStringAny(getSliceVal(getMapVal(getMapVal(model, "meraki"), "templates"), "networks")[0])
+	if got := getSliceVal(getMapVal(base, "variables"), "servers")[0]; got != "1.1.1.1" {
+		t.Errorf("template variables modified through result: %v", got)
+	}
+}
+
+func TestRenderMerakiModel_DeviceTemplateInheritanceAndDefaults(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: net
+        type: model
+        variables:
+          floor: "1"
+          role: network-default
+    devices:
+      - name: dev-base
+        type: model
+        variables:
+          role: device-default
+          rack: r0
+          floor: "0"
+        configuration:
+          notes: "${role}/${rack}/${floor}"
+      - name: ap
+        type: model
+        templates: [dev-base]
+        variables:
+          rack: r1
+        configuration:
+          tags: [ap]
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+              devices:
+                - name: d1
+                  templates: [ap]
+                - name: d2
+                  templates: [ap]
+                  variables:
+                    rack: r9
+            - name: Net2
+              templates: [net]
+              variables:
+                rack: network-rack
+              devices:
+                - name: d3
+                  templates: [ap]
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, result)
+	if got := getMapVal(net, "variables"); !reflect.DeepEqual(got, map[string]any{"floor": "1", "role": "network-default"}) {
+		t.Errorf("network variables: expected network template defaults, got %#v", got)
+	}
+	devices := getSliceVal(net, "devices")
+	d1 := toMapStringAny(devices[0])
+	// Device template defaults override network template defaults
+	if got := d1["notes"]; got != "device-default/r1/0" {
+		t.Errorf("d1.notes: got %v", got)
+	}
+	if got := d1["tags"]; !reflect.DeepEqual(got, []any{"ap"}) {
+		t.Errorf("d1.tags: got %#v", got)
+	}
+	if got := getMapVal(d1, "variables"); !reflect.DeepEqual(got, map[string]any{"role": "device-default", "rack": "r1", "floor": "0"}) {
+		t.Errorf("d1.variables: expected device template defaults, got %#v", got)
+	}
+	d2 := toMapStringAny(devices[1])
+	if got := d2["notes"]; got != "device-default/r9/0" {
+		t.Errorf("d2.notes: expected device variable to win, got %v", got)
+	}
+
+	// The network's own variables override device template defaults, which are
+	// then not part of the rendered device variables, so that the rendered
+	// network variables merged with the rendered device variables are the
+	// variables used for rendering
+	org := toMapStringAny(getSliceVal(toMapStringAny(getSliceVal(getMapVal(result, "meraki"), "domains")[0]), "organizations")[0])
+	net2 := toMapStringAny(getSliceVal(org, "networks")[1])
+	d3 := toMapStringAny(getSliceVal(net2, "devices")[0])
+	if got := d3["notes"]; got != "device-default/network-rack/0" {
+		t.Errorf("d3.notes: expected network variable to override device template default, got %v", got)
+	}
+	if got := getMapVal(d3, "variables"); !reflect.DeepEqual(got, map[string]any{"role": "device-default", "floor": "0"}) {
+		t.Errorf("d3.variables: expected only effective device template defaults, got %#v", got)
+	}
+	effective := mergeShallow(getMapVal(net2, "variables"), getMapVal(d3, "variables"))
+	if want := map[string]any{"role": "device-default", "rack": "network-rack", "floor": "0"}; !reflect.DeepEqual(effective, want) {
+		t.Errorf("network + device variables: got %#v, want %#v", effective, want)
+	}
+}
+
+func TestRenderMerakiModel_FileTemplateInheritance(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: base
+        type: model
+        configuration:
+          time_zone: UTC
+      - name: vlans
+        type: file
+        file: vlans.yaml.tftpl
+        templates: [base]
+        variables:
+          vlans: [10]
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [vlans]
+`)
+	fileTemplates := map[string]string{
+		"vlans.yaml.tftpl": "appliance:\n  vlans:\n%{ for v in vlans ~}\n    - vlan_id: ${v}\n%{ endfor ~}\n",
+	}
+	result, err := renderMerakiModel(model, fileTemplates, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, result)
+	if got := net["time_zone"]; got != "UTC" {
+		t.Errorf("time_zone: expected inherited from model template, got %v", got)
+	}
+	if got := getSliceVal(getMapVal(net, "appliance"), "vlans"); len(got) != 1 {
+		t.Errorf("vlans: expected rendered with default variable, got %#v", got)
+	}
+}
+
+func TestRenderMerakiModel_TemplateInheritanceErrors(t *testing.T) {
+	network := `
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [a]
+`
+	cases := map[string]struct {
+		model string
+		want  string
+	}{
+		"cycle": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, templates: [b]}
+      - {name: b, type: model, templates: [c]}
+      - {name: c, type: model, templates: [a]}
+` + network,
+			want: `network "Net1": template inheritance cycle: a -> b -> c -> a`,
+		},
+		"self reference": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, templates: [a]}
+` + network,
+			want: `template inheritance cycle: a -> a`,
+		},
+		"missing parent": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, templates: [missing]}
+` + network,
+			want: `network "Net1": template "a": parent template "missing" not found`,
+		},
+		"parent of other kind": {
+			model: `
+meraki:
+  templates:
+    devices:
+      - {name: dev, type: model}
+    networks:
+      - {name: a, type: model, templates: [dev]}
+` + network,
+			want: `template "a": parent template "dev" not found`,
+		},
+		"template listed after its child": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: base, type: model}
+      - {name: a, type: model, templates: [base]}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [a, base]
+`,
+			want: `network "Net1": inconsistent order of templates "base", "a"`,
+		},
+		"conflicting parent order": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: p, type: model}
+      - {name: q, type: model}
+      - {name: x, type: model, templates: [p, q]}
+      - {name: y, type: model, templates: [q, p]}
+      - {name: a, type: model, templates: [x, y]}
+` + network,
+			want: `template "a": inconsistent order of templates`,
+		},
+		"templates not a list": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, templates: base}
+` + network,
+			want: `template "a": 'templates' must be a list of template names`,
+		},
+		"variables not a map": {
+			model: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, variables: [x]}
+` + network,
+			want: `template "a": 'variables' must be a map`,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := renderMerakiModel(mustYamlModel(t, tc.model), nil, false)
+			if err == nil {
+				t.Fatalf("expected error containing %q", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("expected error containing %q, got %q", tc.want, err.Error())
+			}
+		})
+	}
+}
+
+func TestRenderMerakiModel_TemplateAttributesInConfigurationIgnored(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: other
+        type: model
+        configuration:
+          notes: from other
+      - name: net
+        type: model
+        variables:
+          site: from-variables
+        configuration:
+          notes: "net ${site}"
+          templates: [other]
+          variables:
+            site: "${undefined}"
+      - name: file
+        type: file
+        file: net.yaml.tftpl
+    devices:
+      - name: dev
+        type: model
+        configuration:
+          notes: "dev ${site}"
+          templates: [other]
+          variables:
+            site: ignored
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net, file]
+              devices:
+                - name: d1
+                  templates: [dev]
+`)
+	fileTemplates := map[string]string{
+		"net.yaml.tftpl": "time_zone: UTC\ntemplates: [other]\nvariables:\n  site: from-file\n",
+	}
+	result, err := renderMerakiModel(model, fileTemplates, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, result)
+	if got := net["notes"]; got != "net from-variables" {
+		t.Errorf("notes: expected 'other' not to be applied, got %v", got)
+	}
+	if got := net["time_zone"]; got != "UTC" {
+		t.Errorf("time_zone: expected file template to be applied, got %v", got)
+	}
+	if got := getStringSlice(net, "templates"); !reflect.DeepEqual(got, []string{"net", "file"}) {
+		t.Errorf("templates: expected network's own list only, got %#v", got)
+	}
+	if got := getMapVal(net, "variables"); !reflect.DeepEqual(got, map[string]any{"site": "from-variables"}) {
+		t.Errorf("variables: expected template defaults only, got %#v", got)
+	}
+	d1 := toMapStringAny(getSliceVal(net, "devices")[0])
+	if got := d1["notes"]; got != "dev from-variables" {
+		t.Errorf("d1.notes: expected network variables, got %v", got)
+	}
+	if got := getStringSlice(d1, "templates"); !reflect.DeepEqual(got, []string{"dev"}) {
+		t.Errorf("d1.templates: expected device's own list only, got %#v", got)
+	}
+	if _, ok := d1["variables"]; ok {
+		t.Errorf("d1.variables: expected none, got %#v", d1["variables"])
+	}
+
+	// The input model must not be modified
+	tmpl := toMapStringAny(getSliceVal(getMapVal(getMapVal(model, "meraki"), "templates"), "networks")[1])
+	if _, ok := getMapVal(tmpl, "configuration")["templates"]; !ok {
+		t.Errorf("configuration of the input model was modified")
+	}
+}
+
+func TestRenderMerakiModel_UnusedBrokenTemplatesIgnored(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - {name: ok, type: model, configuration: {notes: ok}}
+      - {name: missing-parent, type: model, templates: [missing]}
+      - {name: bad-variables, type: model, variables: [x]}
+    devices:
+      - {name: x, type: model, templates: [y]}
+      - {name: y, type: model, templates: [x]}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [ok]
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unused templates should not fail the rendering: %v", err)
+	}
+	if got := firstNetwork(t, result)["notes"]; got != "ok" {
+		t.Errorf("notes: got %v", got)
+	}
+}
+
+func TestRenderMerakiModel_EnvTagsInDefaultVariables(t *testing.T) {
+	t.Setenv("MERAKI_TEST_TOKEN", "secret-token")
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: net
+        type: model
+        variables:
+          token: !env MERAKI_TEST_TOKEN
+        configuration:
+          notes: "Bearer ${token}"
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+`)
+	// raw: tags are kept, also within strings and in the rendered variables
+	raw, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, raw)
+	if got := net["notes"]; got != "Bearer !env MERAKI_TEST_TOKEN" {
+		t.Errorf("raw notes: got %v", got)
+	}
+	if got := getMapVal(net, "variables")["token"]; got != "!env MERAKI_TEST_TOKEN" {
+		t.Errorf("raw variables.token: got %v", got)
+	}
+
+	// resolved: tags are resolved within strings; whole-value tags are resolved
+	// by resolveYamlTags afterwards
+	resolvedRender, err := renderMerakiModel(model, nil, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resolvedNative, err := resolveYamlTags(resolvedRender)
+	if err != nil {
+		t.Fatalf("resolving tags: %v", err)
+	}
+	resolved := toMapStringAny(resolvedNative)
+	net = firstNetwork(t, resolved)
+	if got := net["notes"]; got != "Bearer secret-token" {
+		t.Errorf("resolved notes: got %v", got)
+	}
+	if got := getMapVal(net, "variables")["token"]; got != "secret-token" {
+		t.Errorf("resolved variables.token: got %v", got)
+	}
+
+	// errors that only occur with resolved values do not reveal them
+	failing := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: net
+        type: model
+        variables:
+          token: !env MERAKI_TEST_TOKEN
+        configuration:
+          notes: "${tonumber(token)}"
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+`)
+	_, err = renderMerakiModel(failing, nil, true)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if msg := resolvedRenderError(err, failing).Error(); strings.Contains(msg, "secret-token") {
+		t.Errorf("error reveals the value of the !env tag: %s", msg)
 	}
 }

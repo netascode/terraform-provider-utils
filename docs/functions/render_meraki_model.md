@@ -12,10 +12,16 @@ Processes a Meraki Network as Code model and applies network and device template
 
 Templates are either of type `model` (inline `configuration`, where every string value is rendered as a template) or of type `file` (a template file referenced by `file`, whose content must be provided via `file_templates`, rendered and decoded as YAML).
 
-The following variables are available in templates:
+A template can inherit from other templates of the same kind (network or device) by listing them in its own `templates` attribute, where later parents take precedence. The templates referenced by a network or device are expanded with the templates they inherit from, and every template is applied once, in an order that keeps the order of the referenced templates and of the parents of every template, with parents applied before the templates inheriting from them (C3 linearization). If no such order exists, e.g. because a template is referenced after a template inheriting from it, or two templates list the same parents in a different order, an error is returned. Inheritance cycles and references to unknown parent templates are an error as well. Like other template errors, these errors only occur for templates that are used. `templates` and `variables` within the `configuration` of a template (or the content of a file template) are ignored, use the `templates` and `variables` attributes of the template instead.
 
-- Network templates: `GLOBAL` (the `meraki` section of the merged model) and the network's `variables`.
-- Device templates: `GLOBAL`, the parent network's `variables` (after network templates have been applied) and the device's `variables`, where device variables take precedence over network variables.
+A template can define default values for template variables in its own `variables` attribute. The default variables of all applied templates (including inherited ones) are merged in application order, so that a template overrides the defaults of its parents and of templates applied before it. Default variable values are not rendered as templates.
+
+The following variables are available in templates, in increasing order of precedence:
+
+- Network templates: `GLOBAL` (the `meraki` section of the merged model), the default variables of the applied network templates and the network's `variables`.
+- Device templates: `GLOBAL`, the default variables of the network's templates, the default variables of the applied device templates, the network's `variables` and the device's `variables`.
+
+The `variables` of a rendered network include the default variables of its templates. The `variables` of a rendered device include the default variables of its templates that are not overridden by the network's `variables`, so that the variables used for the device templates are always the rendered network `variables` merged with the rendered device `variables`.
 
 Only template content is rendered, `${}` expressions in the regular configuration are left untouched. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in a template and in the configuration.
 
