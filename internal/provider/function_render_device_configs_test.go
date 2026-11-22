@@ -1447,6 +1447,8 @@ func TestRenderDeviceConfigsFunction_EnvTagsInVariables(t *testing.T) {
 					resource.TestCheckOutput("cli_raw", "snmp-server community !env TF_ACC_RDC_TOKEN"),
 					resource.TestCheckOutput("cli_resolved", "snmp-server community secret123"),
 					resource.TestCheckOutput("dollar_resolved", "ab${c}%{d}"),
+					resource.TestCheckOutput("devices_raw", "d-!env TF_ACC_RDC_TOKEN"),
+					resource.TestCheckOutput("devices_resolved", "d-secret123"),
 				),
 			},
 		},
@@ -1466,6 +1468,7 @@ func testAccRenderDeviceConfigs_envTagsInVariables() string {
 		          banner: "Bearer $${token}"
 		          pure: "$${token}"
 		          global: "x-$${GLOBAL.global.variables.token}"
+		          devices: "d-$${DEVICES[0].variables.token}"
 		    - name: c
 		      type: cli
 		      content: "snmp-server community $${token}"
@@ -1514,6 +1517,12 @@ func testAccRenderDeviceConfigs_envTagsInVariables() string {
 	}
 	output "dollar_resolved" {
 		value = local.resolved.configuration.system.password
+	}
+	output "devices_raw" {
+		value = local.raw.configuration.system.devices
+	}
+	output "devices_resolved" {
+		value = local.resolved.configuration.system.devices
 	}
 	`
 }

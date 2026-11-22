@@ -56,6 +56,22 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"(e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, " +
 			"use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`).\n\n" +
 			"~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.\n\n" +
+			"## Template Variables\n\n" +
+			"The following variables are available inside `${}` template expressions in model templates, " +
+			"file templates, CLI templates, configuration values and interface group configurations:\n\n" +
+			"- The `variables` of `global`, the device groups the device belongs to and the device, " +
+			"in increasing order of precedence. Templates of a device group additionally see that group's own `variables` on top of the device variables.\n" +
+			"- `GLOBAL`: the whole architecture section of the merged model (e.g. `GLOBAL.devices`).\n" +
+			"- `DEVICES`: all devices of the model in model order, including devices not managed in this run, each with its `name`, " +
+			"the names of the `device_groups` it belongs to (devices listing the group and devices listed by the group, in device group order, followed by groups the device lists that are not defined) " +
+			"and its `variables` (the variables of `global`, its device groups and the device, merged as for the device's own templates). " +
+			"This allows templates to refer to other devices, e.g. " +
+			"`[for d in DEVICES : d.variables.mgmt_ip if contains(d.device_groups, \"VPC\") && d.name != DEVICE.name]`.\n" +
+			"- `DEVICE`: the device being rendered, i.e. its element of `DEVICES` " +
+			"(e.g. `DEVICE.name`, `contains(DEVICE.device_groups, \"LEAFS\")`, `DEVICE.variables.leaf_id`). This allows a single template attached to a device group or `global` " +
+			"to select the entries of a shared list that apply to the device, e.g. " +
+			"`%{ for e in endpoints ~}%{ if contains(e.switches, DEVICE.name) ~}...%{ endif ~}%{ endfor ~}` in a file template.\n\n" +
+			"A user variable named `GLOBAL`, `DEVICES` or `DEVICE` takes precedence over the built-in variable of the same name.\n\n" +
 			"## Template Functions\n\n" +
 			"The following functions are available inside `${}` template expressions in model templates, " +
 			"file templates, and CLI templates:\n\n" +
@@ -243,6 +259,14 @@ type renderContext struct {
 	globalCtyDone bool
 	// globalCtyConversions counts conversions of GLOBAL (for tests)
 	globalCtyConversions int
+	// DEVICES as a cty value, converted at most once per render on first use (see devicesCtyValue)
+	devicesCty     cty.Value
+	devicesCtyErr  error
+	devicesCtyDone bool
+	// devicesCtyConversions counts conversions of DEVICES (for tests)
+	devicesCtyConversions int
+	// deviceIndex maps device names to their index in DEVICES (set by devicesCtyValue)
+	deviceIndex map[string]int
 }
 
 // globalCtyValue returns the GLOBAL variable (the whole architecture config) as
@@ -258,11 +282,92 @@ func (rctx *renderContext) globalCtyValue() (cty.Value, error) {
 	return rctx.globalCty, rctx.globalCtyErr
 }
 
-// varsToCty converts template variables to cty values and adds GLOBAL, unless
-// a user variable named GLOBAL takes precedence. If resolveVarTags is set,
-// !env tags in all variables except GLOBAL (which is resolved once in
-// extractRenderContext) are resolved, leaving tags of unset environment variables unchanged.
-func (rctx *renderContext) varsToCty(vars map[string]any) (map[string]cty.Value, error) {
+// devicesNative returns the DEVICES variable: all devices of the model (also
+// devices not managed in this run), in model order, each with its name, the
+// names of the device groups it belongs to and its variables (global, device
+// group and device variables, as seen by its device templates). The device
+// groups are the defined device groups it belongs to (in device group order,
+// membership in either direction), followed by the device groups it lists that
+// are not defined (in the order listed), as in GLOBAL. It also sets deviceIndex.
+func (rctx *renderContext) devicesNative() []any {
+	result := make([]any, 0, len(rctx.devices))
+	rctx.deviceIndex = make(map[string]int, len(rctx.devices))
+	for _, deviceRaw := range rctx.devices {
+		device, ok := deviceRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := getStringVal(device, "name", "")
+		groups := []any{}
+		seen := map[string]bool{}
+		for _, dgRaw := range rctx.deviceGroups {
+			if dg, ok := dgRaw.(map[string]any); ok && deviceMatchesGroup(device, dg) {
+				dgName := getStringVal(dg, "name", "")
+				if !seen[dgName] {
+					seen[dgName] = true
+					groups = append(groups, dgName)
+				}
+			}
+		}
+		for _, dgName := range getStringSlice(device, "device_groups") {
+			if !seen[dgName] {
+				seen[dgName] = true
+				groups = append(groups, dgName)
+			}
+		}
+		var variables any = buildDeviceVariables(rctx, device)
+		if rctx.resolveVarTags {
+			variables = resolveYamlTagsLenient(variables)
+		}
+		if _, dup := rctx.deviceIndex[name]; !dup {
+			rctx.deviceIndex[name] = len(result)
+		}
+		result = append(result, map[string]any{
+			"name":          name,
+			"device_groups": groups,
+			"variables":     variables,
+		})
+	}
+	return result
+}
+
+// devicesCtyValue returns the DEVICES variable as a cty value. Like GLOBAL, it
+// is converted once per render, on first use, and shared by all devices; the
+// DEVICE variable of each device is its element of DEVICES. A conversion error
+// names the device whose entry could not be converted.
+func (rctx *renderContext) devicesCtyValue() (cty.Value, error) {
+	if !rctx.devicesCtyDone {
+		rctx.devicesCty, rctx.devicesCtyErr = devicesToCty(rctx.devicesNative())
+		rctx.devicesCtyDone = true
+		rctx.devicesCtyConversions++
+	}
+	return rctx.devicesCty, rctx.devicesCtyErr
+}
+
+// devicesToCty converts the native DEVICES variable to a cty tuple, naming the
+// device of an element that cannot be converted.
+func devicesToCty(devices []any) (cty.Value, error) {
+	if len(devices) == 0 {
+		return cty.EmptyTupleVal, nil
+	}
+	elems := make([]cty.Value, len(devices))
+	for i, d := range devices {
+		v, err := nativeToCty(d)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("device %q: %w", getStringVal(toMapStringAny(d), "name", ""), err)
+		}
+		elems[i] = v
+	}
+	return cty.TupleVal(elems), nil
+}
+
+// varsToCty converts template variables to cty values and adds GLOBAL, DEVICES
+// and DEVICE (the element of DEVICES of the named device, if device is set),
+// unless a user variable of the same name takes precedence. If resolveVarTags
+// is set, !env tags in all variables except GLOBAL (which is resolved once in
+// extractRenderContext) are resolved, leaving tags of unset environment
+// variables unchanged.
+func (rctx *renderContext) varsToCty(vars map[string]any, device string) (map[string]cty.Value, error) {
 	if rctx.resolveVarTags {
 		resolved := make(map[string]any, len(vars))
 		for k, v := range vars {
@@ -285,6 +390,20 @@ func (rctx *renderContext) varsToCty(vars map[string]any) (map[string]cty.Value,
 		}
 		result["GLOBAL"] = global
 	}
+	_, userDevices := result["DEVICES"]
+	_, userDevice := result["DEVICE"]
+	if !userDevices || (!userDevice && device != "") {
+		devices, err := rctx.devicesCtyValue()
+		if err != nil {
+			return nil, fmt.Errorf("key %q: %w", "DEVICES", err)
+		}
+		if !userDevices {
+			result["DEVICES"] = devices
+		}
+		if i, ok := rctx.deviceIndex[device]; ok && !userDevice && device != "" {
+			result["DEVICE"] = devices.Index(cty.NumberIntVal(int64(i)))
+		}
+	}
 	return result, nil
 }
 
@@ -296,18 +415,19 @@ type templateVars struct {
 	rctx   *renderContext
 	label  string // error context, e.g. `group "leafs" vars`
 	native map[string]any
+	device string // name of the device rendered, for the DEVICE variable (not added if empty)
 	values map[string]cty.Value
 	err    error
 	done   bool
 }
 
-func newTemplateVars(rctx *renderContext, label string, native map[string]any) *templateVars {
-	return &templateVars{rctx: rctx, label: label, native: native}
+func newTemplateVars(rctx *renderContext, label string, native map[string]any, device string) *templateVars {
+	return &templateVars{rctx: rctx, label: label, native: native, device: device}
 }
 
 func (v *templateVars) get() (map[string]cty.Value, error) {
 	if !v.done {
-		v.values, v.err = v.rctx.varsToCty(v.native)
+		v.values, v.err = v.rctx.varsToCty(v.native, v.device)
 		if v.err != nil {
 			v.err = fmt.Errorf("%s: %w", v.label, v.err)
 		}
@@ -489,7 +609,8 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 
 	// 4a. Build device variables (shallow merge), converted to cty on first use
 	deviceVars := buildDeviceVariables(rctx, device)
-	ctyVars := newTemplateVars(rctx, "converting variables", deviceVars)
+
+	ctyVars := newTemplateVars(rctx, "converting variables", deviceVars, deviceName)
 
 	// Device groups of this device, each with its variables on top of the device variables
 	var groups []matchedGroup
@@ -500,7 +621,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		}
 		name := getStringVal(dg, "name", "")
 		groupVars := mergeShallow(deviceVars, getMapVal(dg, "variables"))
-		groups = append(groups, matchedGroup{group: dg, name: name, vars: newTemplateVars(rctx, fmt.Sprintf("group %q vars", name), groupVars)})
+		groups = append(groups, matchedGroup{group: dg, name: name, vars: newTemplateVars(rctx, fmt.Sprintf("group %q vars", name), groupVars, deviceName)})
 	}
 
 	// 4b. Process file templates
