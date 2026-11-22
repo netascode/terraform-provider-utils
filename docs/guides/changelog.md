@@ -9,6 +9,7 @@ description: |-
 
 ## Unreleased
 
+- Remove the unused `GLOBAL` template variable from `render_meraki_model`
 - Add template inheritance (`templates` attribute of a template) to `render_meraki_model`
 - Add default variables (`variables` attribute of a template) to `render_meraki_model`
 - Ignore `templates` and `variables` within the `configuration` of templates in `render_meraki_model`

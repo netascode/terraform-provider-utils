@@ -18,8 +18,8 @@ A template can define default values for template variables in its own `variable
 
 The following variables are available in templates, in increasing order of precedence:
 
-- Network templates: `GLOBAL` (the `meraki` section of the merged model), the default variables of the applied network templates and the network's `variables`.
-- Device templates: `GLOBAL`, the default variables of the network's templates, the default variables of the applied device templates, the network's `variables` and the device's `variables`.
+- Network templates: the default variables of the applied network templates and the network's `variables`.
+- Device templates: the default variables of the network's templates, the default variables of the applied device templates, the network's `variables` and the device's `variables`.
 
 The `variables` of a rendered network include the default variables of its templates. The `variables` of a rendered device include the default variables of its templates that are not overridden by the network's `variables`, so that the variables used for the device templates are always the rendered network `variables` merged with the rendered device `variables`.
 

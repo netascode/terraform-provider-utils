@@ -67,9 +67,9 @@ func (r RenderMerakiModelFunction) Definition(_ context.Context, _ function.Defi
 			"applied templates (including inherited ones) are merged in application order, so that a template overrides the defaults " +
 			"of its parents and of templates applied before it. Default variable values are not rendered as templates.\n\n" +
 			"The following variables are available in templates, in increasing order of precedence:\n\n" +
-			"- Network templates: `GLOBAL` (the `meraki` section of the merged model), the default variables of the applied network templates " +
+			"- Network templates: the default variables of the applied network templates " +
 			"and the network's `variables`.\n" +
-			"- Device templates: `GLOBAL`, the default variables of the network's templates, the default variables of the applied device templates, " +
+			"- Device templates: the default variables of the network's templates, the default variables of the applied device templates, " +
 			"the network's `variables` and the device's `variables`.\n\n" +
 			"The `variables` of a rendered network include the default variables of its templates. The `variables` of a rendered device " +
 			"include the default variables of its templates that are not overridden by the network's `variables`, so that the variables " +
@@ -234,30 +234,11 @@ type merakiRenderContext struct {
 	deviceTemplates  *merakiTemplateSet
 	fileTemplates    map[string]string
 	resolveVarTags   bool
-	globalVar        any // value of the GLOBAL variable (the meraki section, with tags resolved if resolveVarTags)
-	// GLOBAL as a cty value, converted at most once per render, when the first
-	// network or device with templates is rendered (see globalCtyValue)
-	globalCty     cty.Value
-	globalCtyErr  error
-	globalCtyDone bool
-	// globalCtyConversions counts conversions of GLOBAL (for tests)
-	globalCtyConversions int
-}
-
-// globalCtyValue returns the GLOBAL variable as a cty value, converting it on
-// first use only, so that models without templates skip the conversion.
-func (rctx *merakiRenderContext) globalCtyValue() (cty.Value, error) {
-	if !rctx.globalCtyDone {
-		rctx.globalCty, rctx.globalCtyErr = nativeToCty(rctx.globalVar)
-		rctx.globalCtyConversions++
-		rctx.globalCtyDone = true
-	}
-	return rctx.globalCty, rctx.globalCtyErr
 }
 
 // renderMerakiModel applies network and device templates to the merged model and
 // returns {"meraki": {...}} without the "templates" section. If resolveVarTags is set,
-// !env tags in template variables (including GLOBAL) are resolved before rendering,
+// !env tags in template variables are resolved before rendering,
 // leaving tags of unset environment variables unchanged.
 func renderMerakiModel(model map[string]any, fileTemplates map[string]string, resolveVarTags bool) (map[string]any, error) {
 	result, _, err := renderMerakiModelContext(model, fileTemplates, resolveVarTags)
@@ -279,17 +260,11 @@ func renderMerakiModelContext(model map[string]any, fileTemplates map[string]str
 		return nil, nil, fmt.Errorf("device templates: %w", err)
 	}
 
-	var globalVar any = meraki
-	if resolveVarTags {
-		globalVar = resolveYamlTagsLenient(meraki)
-	}
-
 	rctx := &merakiRenderContext{
 		networkTemplates: networkTemplates,
 		deviceTemplates:  deviceTemplates,
 		fileTemplates:    fileTemplates,
 		resolveVarTags:   resolveVarTags,
-		globalVar:        globalVar,
 	}
 
 	result := make(map[string]any, len(meraki))
@@ -665,13 +640,13 @@ func renderMerakiOrganization(rctx *merakiRenderContext, org map[string]any) (ma
 }
 
 func renderMerakiNetwork(rctx *merakiRenderContext, network map[string]any) (map[string]any, error) {
-	// 1. Apply network templates with GLOBAL + template default variables + network variables
+	// 1. Apply network templates with template default variables + network variables
 	rendered, networkDefaults, err := applyMerakiTemplates(rctx, network, rctx.networkTemplates, merakiParentVars{})
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Apply device templates with GLOBAL + network template default variables +
+	// 2. Apply device templates with network template default variables +
 	// device template default variables + network variables + device variables
 	devices, ok := rendered["devices"].([]any)
 	if !ok {
@@ -701,8 +676,7 @@ func merakiDeviceName(device map[string]any) string {
 	return getStringVal(device, "serial", "")
 }
 
-// merakiTemplateVars builds the template variables: GLOBAL plus the given variables,
-// where the given variables take precedence.
+// merakiTemplateVars converts the given variables to cty template variables.
 func merakiTemplateVars(rctx *merakiRenderContext, vars map[string]any) (map[string]cty.Value, error) {
 	plain := orderedMapToPlainMap(vars).(map[string]any)
 	if rctx.resolveVarTags {
@@ -711,13 +685,6 @@ func merakiTemplateVars(rctx *merakiRenderContext, vars map[string]any) (map[str
 	ctyVars, err := nativeToCtyMap(plain)
 	if err != nil {
 		return nil, fmt.Errorf("converting variables: %w", err)
-	}
-	if _, ok := ctyVars["GLOBAL"]; !ok {
-		global, err := rctx.globalCtyValue()
-		if err != nil {
-			return nil, fmt.Errorf("converting GLOBAL variable: %w", err)
-		}
-		ctyVars["GLOBAL"] = global
 	}
 	return ctyVars, nil
 }
@@ -742,7 +709,7 @@ type merakiParentVars struct {
 // variables used for rendering are always the rendered variables of the parent
 // (if any) merged with the rendered variables of obj. The result is a new plain
 // map, obj is not modified. The default variables of the applied templates are
-// returned as well; they must not be modified. The variables (incl. GLOBAL) are
+// returned as well; they must not be modified. The variables are
 // only converted to cty if obj references templates.
 func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *merakiTemplateSet, parent merakiParentVars) (map[string]any, map[string]any, error) {
 	templateNames := getStringSlice(obj, "templates")
