@@ -19,6 +19,7 @@ package provider
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -281,6 +282,7 @@ func hclTemplateFunctions() map[string]function.Function {
 		"sum":         sumFunc,
 		"base64encode": base64EncodeFunc,
 		"base64decode": base64DecodeFunc,
+		"fail":         failFunc,
 	}
 }
 
@@ -520,5 +522,19 @@ var base64DecodeFunc = function.New(&function.Spec{
 			return cty.NilVal, fmt.Errorf("failed to decode base64: %s", err)
 		}
 		return cty.StringVal(string(decoded)), nil
+	},
+})
+
+// failFunc stops rendering with the given message as error, e.g. in the branch
+// of a conditional that is not allowed: `${contains(vlans, v) ? v : fail("VLAN ${v} is not defined")}`.
+// Only the selected branch of a conditional is evaluated, and try/can catch it.
+// A trailing period is removed, as HCL adds one to function errors.
+var failFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "message", Type: cty.String},
+	},
+	Type: function.StaticReturnType(cty.DynamicPseudoType),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		return cty.NilVal, errors.New(strings.TrimSuffix(args[0].AsString(), "."))
 	},
 })

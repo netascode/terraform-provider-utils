@@ -1410,3 +1410,29 @@ meraki:
 		t.Errorf("error reveals the value of the !env tag: %s", msg)
 	}
 }
+
+// fail is also available in render_meraki_model templates.
+func TestRenderMerakiModel_FailFunction(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: base
+        type: model
+        configuration:
+          notes: '${site_id > 0 ? "Site ${site_id}" : fail("site_id must be positive, not ${site_id}")}'
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [base]
+              variables:
+                site_id: 0
+`)
+	_, err := renderMerakiModel(model, nil, false)
+	if err == nil || !strings.Contains(err.Error(), `Call to function "fail" failed: site_id must be positive, not 0`) {
+		t.Errorf("error = %v, want fail message", err)
+	}
+}

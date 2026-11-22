@@ -18,7 +18,9 @@
 package provider
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +181,108 @@ nxos:
 		}
 		if !reflect.DeepEqual(got, w) {
 			t.Errorf("%s: cli_templates = %v, want %v", name, got, w)
+		}
+	}
+}
+
+// Names in the templates lists of global, device groups and devices must be
+// templates of type file, model or cli. All problems are reported at once,
+// together with those of template instances.
+func TestRenderDeviceConfigs_UnknownTemplateReferences(t *testing.T) {
+	model := mustYamlModel(t, `
+nxos:
+  templates:
+    - name: base
+      type: model
+      configuration: {system: {hostname: x}}
+    - name: odd
+      type: jinja
+  global:
+    templates: [base, missing_global]
+  device_groups:
+    - name: LEAFS
+      templates: [missing_group, odd]
+    - templates: [missing_unnamed]
+  devices:
+    - name: leaf1
+      templates: [base, missing_device]
+  template_instances:
+    - name: SVC
+      template: missing_instance
+      devices: [leaf1]
+`)
+	_, err := renderDeviceConfigs(model, nil, nil, nil, nil, false)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{
+		`invalid template references:`,
+		`global.templates: unknown template "missing_global"`,
+		`device_groups[LEAFS].templates: unknown template "missing_group"`,
+		`device_groups[LEAFS].templates: template "odd" has unsupported type "jinja"`,
+		`device_groups[1].templates: unknown template "missing_unnamed"`,
+		`devices[leaf1].templates: unknown template "missing_device"`,
+		`template_instances[SVC]: unknown template "missing_instance"`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not contain %q:\n%v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), `"base"`) {
+		t.Errorf("error mentions the valid template base:\n%v", err)
+	}
+}
+
+// fail stops rendering with its message in file, model and CLI templates,
+// configuration values and template instances, only in the selected branch of
+// a conditional, and can be caught with try/can.
+func TestRenderDeviceConfigs_FailFunction(t *testing.T) {
+	const model = `
+nxos:
+  templates:
+    - name: file_tmpl
+      type: file
+      file: check.yaml
+    - name: model_tmpl
+      type: model
+      configuration:
+        system:
+          description: '${vlan < 4000 ? "ok" : fail("model: VLAN ${vlan} is reserved")}'
+    - name: cli_tmpl
+      type: cli
+      content: '${vlan < 4000 ? "ok" : fail("cli: VLAN ${vlan} is reserved")}'
+  devices:
+    - name: leaf1
+      templates: [%s]
+      variables: {vlan: %d}
+      configuration:
+        system:
+          location: '${try(fail("caught"), "fallback")}'
+`
+	fileTemplates := map[string]string{
+		"check.yaml": `%{ if vlan >= 4000 }${fail("file: VLAN ${vlan} is reserved on ${DEVICE.name}.")}%{ endif }
+system:
+  hostname: "${vlan}"
+`,
+	}
+	for _, tmpl := range []string{"file_tmpl", "model_tmpl", "cli_tmpl"} {
+		result, err := renderDeviceConfigs(mustYamlModel(t, fmt.Sprintf(model, tmpl, 10)), fileTemplates, nil, nil, nil, false)
+		if err != nil {
+			t.Fatalf("%s with VLAN 10: %v", tmpl, err)
+		}
+		system := getMapVal(getMapVal(renderedDevice(t, result, "leaf1"), "configuration"), "system")
+		if got := getStringVal(system, "location", ""); got != "fallback" {
+			t.Errorf("%s: location = %q, want fallback", tmpl, got)
+		}
+	}
+	for tmpl, want := range map[string]string{
+		"file_tmpl":  `Call to function "fail" failed: file: VLAN 4001 is reserved on leaf1.`,
+		"model_tmpl": `Call to function "fail" failed: model: VLAN 4001 is reserved.`,
+		"cli_tmpl":   `Call to function "fail" failed: cli: VLAN 4001 is reserved.`,
+	} {
+		_, err := renderDeviceConfigs(mustYamlModel(t, fmt.Sprintf(model, tmpl, 4001)), fileTemplates, nil, nil, nil, false)
+		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "leaf1..") {
+			t.Errorf("%s with VLAN 4001: error = %v, want %q", tmpl, err, want)
 		}
 	}
 }

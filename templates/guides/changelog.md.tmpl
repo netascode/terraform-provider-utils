@@ -17,6 +17,8 @@ description: |-
 - Fix `render_device_configs` not rendering template expressions and not removing null values nested in `file` template output
 - Fix duplicate CLI template names in `render_device_configs`: the most specific entry with the same name now replaces earlier ones
 - Add `parse_vlans` and `expand_interfaces` template functions to `render_device_configs`, converting VLAN and interface ranges in CLI notation
+- Add `fail` template function to `render_device_configs` and `render_meraki_model`, which stops rendering with a custom error message
+- Report unknown templates in the `templates` lists of `global`, device groups and devices as errors in `render_device_configs`, instead of ignoring them
 - Improve `render_device_configs` and `render_meraki_model` performance with many devices or large models
 
 ## 2.2.0

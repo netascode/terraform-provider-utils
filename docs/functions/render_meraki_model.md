@@ -47,7 +47,9 @@ The following functions are available inside `${}` template expressions in model
 
 **Boolean:** `alltrue`, `anytrue`
 
-**Error Handling:** `try`, `can`
+**Error Handling:** `try`, `can`, `fail`
+
+`fail(message)` stops rendering with the message as error, e.g. `${contains(vlans, vlan) ? vlan : fail("VLAN ${vlan} is not defined")}`. Only the selected branch of a conditional (or `%{ if }` directive) is evaluated, and `try` and `can` catch the error.
 
 ## Example Usage
 

@@ -19,6 +19,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -55,6 +56,8 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"so that YAML loaders with `!env` support (e.g. `nac-validate`, `nac-test`) resolve it. A tag used within a string is kept as text " +
 			"(e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, " +
 			"use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`).\n\n" +
+			"The names in the `templates` lists of `global`, the device groups and the devices must be templates of type `file`, `model` or `cli`; " +
+			"unknown templates and templates of other types are reported as errors, all at once.\n\n" +
 			"CLI templates are named after their template: `<template>` for templates of `global` and the device, `<template>/<group>` for device group templates " +
 			"and `<template>/instance/<instance>` for template instances. An entry replaces an earlier entry with the same name, " +
 			"in increasing order of precedence (`global`, device groups, template instances, device templates, then the device's `cli_templates`), " +
@@ -111,7 +114,9 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"**Encoding:** `base64decode`, `base64encode`, `csvdecode`, `jsondecode`, `jsonencode`\n\n" +
 			"**Date/Time:** `formatdate`, `timeadd`\n\n" +
 			"**Boolean:** `alltrue`, `anytrue`\n\n" +
-			"**Error Handling:** `try`, `can`\n\n" +
+			"**Error Handling:** `try`, `can`, `fail`\n\n" +
+			"`fail(message)` stops rendering with the message as error, e.g. `${contains(vlans, vlan) ? vlan : fail(\"VLAN ${vlan} is not defined\")}`. " +
+			"Only the selected branch of a conditional (or `%{ if }` directive) is evaluated, and `try` and `can` catch the error.\n\n" +
 			"**Network:** `parse_vlans`, `expand_interfaces`\n\n" +
 			"`parse_vlans(vlans)` converts VLANs in CLI notation (a number, a string such as `\"10,20-29\"`, or a list of them) " +
 			"to the `ids` and `ranges` object the device data models use for VLAN lists, e.g. `parse_vlans([10, \"20-29\"])` returns " +
@@ -569,6 +574,51 @@ func discoverArchitecture(model map[string]any) (string, error) {
 	return arch, nil
 }
 
+// validateTemplateReferences checks the templates lists of global, the device
+// groups and the devices: each name must be a template of type file, model or
+// cli, as a misspelled name would otherwise not apply the template without
+// notice. All problems are returned at once, each with the path of the list.
+func validateTemplateReferences(archConfig map[string]any, templates map[string]map[string]any) error {
+	var errs []error
+	check := func(path string, owner map[string]any) {
+		for _, name := range getStringSlice(owner, "templates") {
+			tmpl, ok := templates[name]
+			if !ok {
+				errs = append(errs, fmt.Errorf("%s: unknown template %q", path, name))
+				continue
+			}
+			switch t := getStringVal(tmpl, "type", ""); t {
+			case "file", "model", "cli":
+			default:
+				errs = append(errs, fmt.Errorf("%s: template %q has unsupported type %q", path, name, t))
+			}
+		}
+	}
+	check("global.templates", getMapVal(archConfig, "global"))
+	for i, dgRaw := range getSliceVal(archConfig, "device_groups") {
+		if dg := toMapStringAny(dgRaw); dg != nil {
+			check(fmt.Sprintf("device_groups[%s].templates", listEntryName(dg, i)), dg)
+		}
+	}
+	for i, dRaw := range getSliceVal(archConfig, "devices") {
+		if d := toMapStringAny(dRaw); d != nil {
+			check(fmt.Sprintf("devices[%s].templates", listEntryName(d, i)), d)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid template references:\n%w", errors.Join(errs...))
+	}
+	return nil
+}
+
+// listEntryName returns the name of a list entry, or its index if it has none.
+func listEntryName(m map[string]any, index int) string {
+	if name := getStringVal(m, "name", ""); name != "" {
+		return name
+	}
+	return fmt.Sprint(index)
+}
+
 func extractRenderContext(model map[string]any, arch string, fileTemplates map[string]string, defaults map[string]any, resolveVarTags bool) (*renderContext, error) {
 	archConfig := getMapVal(model, arch)
 	var globalVar any = archConfig
@@ -590,8 +640,9 @@ func extractRenderContext(model map[string]any, arch string, fileTemplates map[s
 
 	devices := getSliceVal(archConfig, "devices")
 	deviceGroups := getSliceVal(archConfig, "device_groups")
+	refErr := validateTemplateReferences(archConfig, templates)
 	instances, err := parseTemplateInstances(archConfig, templates, devices, deviceGroups)
-	if err != nil {
+	if err := errors.Join(refErr, err); err != nil {
 		return nil, err
 	}
 

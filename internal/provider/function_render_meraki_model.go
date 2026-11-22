@@ -99,7 +99,9 @@ func (r RenderMerakiModelFunction) Definition(_ context.Context, _ function.Defi
 			"**Encoding:** `base64decode`, `base64encode`, `csvdecode`, `jsondecode`, `jsonencode`\n\n" +
 			"**Date/Time:** `formatdate`, `timeadd`\n\n" +
 			"**Boolean:** `alltrue`, `anytrue`\n\n" +
-			"**Error Handling:** `try`, `can`",
+			"**Error Handling:** `try`, `can`, `fail`\n\n" +
+			"`fail(message)` stops rendering with the message as error, e.g. `${contains(vlans, vlan) ? vlan : fail(\"VLAN ${vlan} is not defined\")}`. " +
+			"Only the selected branch of a conditional (or `%{ if }` directive) is evaluated, and `try` and `can` catch the error.",
 		Parameters: []function.Parameter{
 			function.ListParameter{
 				Name:                "yaml_strings",
