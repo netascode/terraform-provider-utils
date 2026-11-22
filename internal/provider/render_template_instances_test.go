@@ -631,3 +631,103 @@ nxos:
 		}
 	}
 }
+
+// Template instances (and items of one instance) must not set a value in a map
+// to different values on a device. Equal values (also numbers of different Go
+// types), list items, other devices and device configuration overriding an
+// instance value are allowed. All conflicts are reported at once.
+func TestRenderDeviceConfigs_TemplateInstanceConflicts(t *testing.T) {
+	model := mustYamlModel(t, `
+nxos:
+  templates:
+    - name: svc
+      type: model
+      configuration:
+        system: {description: "${desc}"}
+        features: {vn_segment: true}
+        evpn: {vni_count: "${vni_count}"}
+        vlans:
+          - id: "${vlan}"
+            name: "${vlan_name}"
+    - name: svc_file
+      type: file
+      file: svc.yaml
+    - name: port
+      type: model
+      configuration:
+        system: {hostname: "${host}"}
+  devices:
+    - name: leaf1
+    - name: leaf2
+      configuration:
+        system: {description: device}
+  template_instances:
+    - {name: A, template: svc, devices: [leaf1, leaf2], variables: {desc: a, vni_count: 10, vlan: 1001, vlan_name: WEB}}
+    - {name: B, template: svc, devices: [leaf1], variables: {desc: b, vni_count: 10, vlan: 1001, vlan_name: APP}}
+    - {name: F, template: svc_file, devices: [leaf1, leaf2]}
+    - name: P
+      template: port
+      devices: [leaf1]
+      items:
+        - variables: {host: x}
+        - name: second
+          variables: {host: y}
+`)
+	fileTemplates := map[string]string{"svc.yaml": "features:\n  vn_segment: true\nevpn:\n  vni_count: 10\n"}
+	_, err := renderDeviceConfigs(model, fileTemplates, []string{"leaf1"}, nil, nil, false)
+	if err == nil {
+		t.Fatal("expected conflicts on leaf1")
+	}
+	for _, want := range []string{
+		`device leaf1: conflicting template instances:`,
+		`system.description: template instance "A" sets "a", template instance "B" sets "b"`,
+		`system.hostname: template instance "P" items[0] sets "x", template instance "P" items[name=second] sets "y"`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not contain %q:\n%v", want, err)
+		}
+	}
+	for _, unwanted := range []string{"vn_segment", "vni_count", "vlans"} {
+		if strings.Contains(err.Error(), unwanted) {
+			t.Errorf("error reports allowed value %s:\n%v", unwanted, err)
+		}
+	}
+
+	// leaf2 only has instances A and F with equal values; its own configuration
+	// overrides the instance value without a conflict
+	result, err := renderDeviceConfigs(model, fileTemplates, []string{"leaf2"}, nil, nil, false)
+	if err != nil {
+		t.Fatalf("leaf2: %v", err)
+	}
+	system := getMapVal(getMapVal(renderedDevice(t, result, "leaf2"), "configuration"), "system")
+	if got := getStringVal(system, "description", ""); got != "device" {
+		t.Errorf("leaf2 system.description = %q, want device", got)
+	}
+}
+
+// Values are compared by their text: types the Terraform modules treat the same
+// are equal, integers are compared exactly.
+func TestScalarsEqual(t *testing.T) {
+	tests := []struct {
+		a, b any
+		want bool
+	}{
+		{"a", "a", true},
+		{"a", "b", false},
+		{10, int64(10), true},
+		{10, "10", true},
+		{int64(10), 10.0, true},
+		{true, "true", true},
+		{true, false, false},
+		{1.5, "1.5", true},
+		{1.5, 1.50, true},
+		{int64(9007199254740993), int64(9007199254740992), false},
+		{"10", "010", false},
+		{1, true, false},
+	}
+	for _, tt := range tests {
+		if got := scalarsEqual(tt.a, tt.b); got != tt.want {
+			t.Errorf("scalarsEqual(%#v, %#v) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}

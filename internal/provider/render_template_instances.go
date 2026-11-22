@@ -20,7 +20,9 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -330,14 +332,123 @@ func resolveInstanceExpressions(cfg map[string]any, vars *templateVars) (map[str
 	return templatePassOnMap(cfg, vars)
 }
 
+// instanceConfig is the rendered configuration of a template instance item.
+type instanceConfig struct {
+	label  string // e.g. template instance "EP" items[name=esx01]
+	config map[string]any
+}
+
+// checkInstanceConflicts reports values that template instances (or items of
+// one instance) set to different values on a device, as the later one would
+// otherwise replace the earlier one without notice. Only values in maps are
+// compared: list items are merged by their values, so conflicting list items
+// are kept as separate items instead of replacing each other. Equal values
+// (e.g. a feature enabled by several services) are allowed. All conflicts are
+// returned at once.
+func checkInstanceConflicts(configs []instanceConfig) error {
+	if len(configs) < 2 {
+		return nil
+	}
+	type setter struct {
+		value any
+		label string
+	}
+	seen := map[string]setter{}
+	var errs []error
+	var walk func(m map[string]any, path, label string)
+	walk = func(m map[string]any, path, label string) {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			v := m[k]
+			p := conflictPath(path, k)
+			if v == nil {
+				continue
+			}
+			if child := toMapStringAny(v); child != nil {
+				walk(child, p, label)
+				continue
+			}
+			if !isPrimitive(v) {
+				continue
+			}
+			prev, ok := seen[p]
+			if !ok {
+				seen[p] = setter{value: v, label: label}
+				continue
+			}
+			if !scalarsEqual(prev.value, v) {
+				errs = append(errs, fmt.Errorf("%s: %s sets %s, %s sets %s", p, prev.label, formatScalar(prev.value), label, formatScalar(v)))
+			}
+		}
+	}
+	for _, c := range configs {
+		walk(c.config, "", c.label)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("conflicting template instances:\n%w", errors.Join(errs...))
+	}
+	return nil
+}
+
+// scalarsEqual compares two scalar values by their text, so that values the
+// Terraform modules treat the same are equal independent of their Go type,
+// e.g. 10 from a model template and "10" from a quoted file template value, or
+// true and "true". Integers are compared exactly.
+func scalarsEqual(a, b any) bool {
+	return scalarText(a) == scalarText(b)
+}
+
+func scalarText(v any) string {
+	switch n := v.(type) {
+	case string:
+		return n
+	case bool:
+		return strconv.FormatBool(n)
+	case int:
+		return strconv.Itoa(n)
+	case int32:
+		return strconv.FormatInt(int64(n), 10)
+	case int64:
+		return strconv.FormatInt(n, 10)
+	case uint64:
+		return strconv.FormatUint(n, 10)
+	case float32:
+		return floatText(float64(n))
+	case float64:
+		return floatText(n)
+	}
+	return fmt.Sprint(v)
+}
+
+// floatText formats whole numbers like integers (1.0 → "1"), others in their
+// shortest exact form.
+func floatText(f float64) string {
+	if f == math.Trunc(f) && math.Abs(f) < 1<<53 {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return strconv.FormatFloat(f, 'g', -1, 64)
+}
+
+func formatScalar(v any) string {
+	if s, ok := v.(string); ok {
+		return strconv.Quote(s)
+	}
+	return fmt.Sprint(v)
+}
+
 // renderTemplateInstances renders the template instances that apply to a
 // device, in instance and item order. Each item sees the device variables
 // (deviceVars, including GLOBAL, DEVICES and DEVICE), the instance variables
 // and the item variables, in increasing order of precedence; only the instance
 // and item variables are converted per item. It returns the configurations of
-// file and model templates and the CLI templates.
-func renderTemplateInstances(rctx *renderContext, deviceName string, deviceVars *templateVars) ([]map[string]any, []any, error) {
-	var configs []map[string]any
+// file and model templates (with the label of their instance item) and the CLI
+// templates.
+func renderTemplateInstances(rctx *renderContext, deviceName string, deviceVars *templateVars) ([]instanceConfig, []any, error) {
+	var configs []instanceConfig
 	var cliTemplates []any
 	for _, inst := range rctx.instances {
 		if !inst.targets[deviceName] {
@@ -369,7 +480,7 @@ func renderTemplateInstances(rctx *renderContext, deviceName string, deviceVars 
 					if err != nil {
 						return nil, nil, fmt.Errorf("%s: %w", label, err)
 					}
-					configs = append(configs, cfg)
+					configs = append(configs, instanceConfig{label: label, config: cfg})
 				}
 			case "model":
 				mt, err := processModelTemplates(rctx, []string{inst.template}, vars)
@@ -381,7 +492,7 @@ func renderTemplateInstances(rctx *renderContext, deviceName string, deviceVars 
 					if err != nil {
 						return nil, nil, fmt.Errorf("%s: %w", label, err)
 					}
-					configs = append(configs, mt)
+					configs = append(configs, instanceConfig{label: label, config: mt})
 				}
 			case "cli":
 				content := getStringVal(inst.tmpl, "content", "")

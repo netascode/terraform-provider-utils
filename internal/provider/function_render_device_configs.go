@@ -98,7 +98,10 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"Unknown attributes, templates, devices and device groups, values of the wrong type, duplicate names " +
 			"and devices of an item outside its instance are reported as errors, all at once. " +
 			"The configurations of template instances are merged after the device group configurations and before the device templates, " +
-			"in instance and item order.\n\n" +
+			"in instance and item order. Template instances (or items of one instance) setting a value in a map to different values " +
+			"on a device are reported as errors; equal values (e.g. a feature enabled by several instances) are allowed. " +
+			"List items are merged by their values, so instances adding the same list item (e.g. a VLAN ID) with different values " +
+			"result in two list items, which fails when the configuration is applied (e.g. as a duplicate key in the Terraform module).\n\n" +
 			"## Template Functions\n\n" +
 			"The following functions are available inside `${}` template expressions in model templates, " +
 			"file templates, and CLI templates:\n\n" +
@@ -838,8 +841,11 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		}
 	}
 	// 7. Template instances
+	if err := checkInstanceConflicts(instanceConfigs); err != nil {
+		return nil, err
+	}
 	for _, ic := range instanceConfigs {
-		if _, err := MergeMaps(ic, merged, true); err != nil {
+		if _, err := MergeMaps(ic.config, merged, true); err != nil {
 			return nil, fmt.Errorf("template instances: %w", err)
 		}
 	}
