@@ -59,6 +59,12 @@ The following functions are available inside `${}` template expressions in model
 
 **Error Handling:** `try`, `can`
 
+**Network:** `parse_vlans`, `expand_interfaces`
+
+`parse_vlans(vlans)` converts VLANs in CLI notation (a number, a string such as `"10,20-29"`, or a list of them) to the `ids` and `ranges` object the device data models use for VLAN lists, e.g. `parse_vlans([10, "20-29"])` returns `{ids = [10], ranges = [{from = 20, to = 29}]}`, for use as `trunk_allowed_vlans: ${jsonencode(parse_vlans(vlans))}` (nxos) or `trunk_allowed_vlans: {vlans: ${jsonencode(parse_vlans(vlans))}}` (iosxe). An empty list returns an empty object and null returns null. Invalid VLANs (other than IDs from 1 to 4094 and ranges of them, e.g. `all`) are reported as errors.
+
+`expand_interfaces(interfaces)` expands interface ranges in CLI notation (a string such as `"1/10,1/20-23"`, or a list of them) to a list of interface IDs, e.g. `["1/10", "1/20", "1/21", "1/22", "1/23"]`, in the given order. A range applies to the last number of an ID (e.g. `1/1/1-4` for breakout ports, `10-12` for port-channels) and covers at most 1024 interfaces.
+
 ## Example Usage
 
 ```terraform

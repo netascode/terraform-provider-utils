@@ -35,6 +35,12 @@ import (
 // renderHCLTemplate parses and evaluates an HCL template string with the given variables.
 // This uses the same HCL library that Terraform's templatestring() uses internally.
 func renderHCLTemplate(tmpl string, vars map[string]cty.Value) (string, error) {
+	return renderHCLTemplateWithFunctions(tmpl, vars, templateFunctions)
+}
+
+// renderHCLTemplateWithFunctions is renderHCLTemplate with a different set of
+// functions (e.g. deviceTemplateFunctions).
+func renderHCLTemplateWithFunctions(tmpl string, vars map[string]cty.Value, funcs map[string]function.Function) (string, error) {
 	expr, diags := hclsyntax.ParseTemplate([]byte(tmpl), "template", hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return "", fmt.Errorf("parsing template: %s", diags.Error())
@@ -42,7 +48,7 @@ func renderHCLTemplate(tmpl string, vars map[string]cty.Value) (string, error) {
 
 	ctx := &hcl.EvalContext{
 		Variables: vars,
-		Functions: templateFunctions,
+		Functions: funcs,
 	}
 
 	val, diags := expr.Value(ctx)
@@ -62,6 +68,12 @@ func renderHCLTemplate(tmpl string, vars map[string]cty.Value) (string, error) {
 // - Pure expressions like "${count}" may return int, bool, etc.
 // - Interpolated strings like "prefix-${name}" always return string.
 func renderHCLTemplateValue(tmpl string, vars map[string]cty.Value) (any, error) {
+	return renderHCLTemplateValueWithFunctions(tmpl, vars, templateFunctions)
+}
+
+// renderHCLTemplateValueWithFunctions is renderHCLTemplateValue with a
+// different set of functions (e.g. deviceTemplateFunctions).
+func renderHCLTemplateValueWithFunctions(tmpl string, vars map[string]cty.Value, funcs map[string]function.Function) (any, error) {
 	expr, diags := hclsyntax.ParseTemplate([]byte(tmpl), "template", hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parsing template: %s", diags.Error())
@@ -69,7 +81,7 @@ func renderHCLTemplateValue(tmpl string, vars map[string]cty.Value) (any, error)
 
 	ctx := &hcl.EvalContext{
 		Variables: vars,
-		Functions: templateFunctions,
+		Functions: funcs,
 	}
 
 	val, diags := expr.Value(ctx)

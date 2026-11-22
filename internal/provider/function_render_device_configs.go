@@ -111,7 +111,17 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"**Encoding:** `base64decode`, `base64encode`, `csvdecode`, `jsondecode`, `jsonencode`\n\n" +
 			"**Date/Time:** `formatdate`, `timeadd`\n\n" +
 			"**Boolean:** `alltrue`, `anytrue`\n\n" +
-			"**Error Handling:** `try`, `can`",
+			"**Error Handling:** `try`, `can`\n\n" +
+			"**Network:** `parse_vlans`, `expand_interfaces`\n\n" +
+			"`parse_vlans(vlans)` converts VLANs in CLI notation (a number, a string such as `\"10,20-29\"`, or a list of them) " +
+			"to the `ids` and `ranges` object the device data models use for VLAN lists, e.g. `parse_vlans([10, \"20-29\"])` returns " +
+			"`{ids = [10], ranges = [{from = 20, to = 29}]}`, " +
+			"for use as `trunk_allowed_vlans: ${jsonencode(parse_vlans(vlans))}` (nxos) or `trunk_allowed_vlans: {vlans: ${jsonencode(parse_vlans(vlans))}}` (iosxe). " +
+			"An empty list returns an empty object and null returns null. " +
+			"Invalid VLANs (other than IDs from 1 to 4094 and ranges of them, e.g. `all`) are reported as errors.\n\n" +
+			"`expand_interfaces(interfaces)` expands interface ranges in CLI notation (a string such as `\"1/10,1/20-23\"`, or a list of them) " +
+			"to a list of interface IDs, e.g. `[\"1/10\", \"1/20\", \"1/21\", \"1/22\", \"1/23\"]`, in the given order. A range applies to the last number of an ID " +
+			"(e.g. `1/1/1-4` for breakout ports, `10-12` for port-channels) and covers at most 1024 interfaces.",
 		Parameters: []function.Parameter{
 			function.ListParameter{
 				Name:                "yaml_strings",
@@ -876,7 +886,7 @@ func processFileTemplates(rctx *renderContext, templateNames []string, vars *tem
 		if err != nil {
 			return nil, err
 		}
-		rendered, err := renderHCLTemplate(content, values)
+		rendered, err := renderHCLTemplateWithFunctions(content, values, deviceTemplateFunctions)
 		if err != nil {
 			return nil, fmt.Errorf("rendering file template %q: %w", name, err)
 		}
@@ -950,7 +960,7 @@ func renderTemplateValues(v any, vars *templateVars) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return renderHCLTemplateValue(val, values)
+		return renderHCLTemplateValueWithFunctions(val, values, deviceTemplateFunctions)
 	default:
 		return v, nil
 	}
@@ -1144,7 +1154,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 		if err != nil {
 			return "", err
 		}
-		return renderHCLTemplate(content, values)
+		return renderHCLTemplateWithFunctions(content, values, deviceTemplateFunctions)
 	}
 
 	// Global CLI templates

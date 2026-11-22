@@ -7,6 +7,7 @@
 - Add template instances (`<arch>.template_instances`) to `render_device_configs`, which apply a `file`, `model` or `cli` template to `devices` and `device_groups` with their own `variables`, only visible to the instance (e.g. one instance per service instead of a device group per service). `items` render the template once per item with item `variables`, optionally narrowed to some of the instance's devices and named for stable CLI template names. Instances are merged after device group configurations and before device templates. Unknown attributes, templates, devices and device groups are reported as errors
 - Fix `render_device_configs` not rendering template expressions and not removing null values nested in `file` template output
 - Fix duplicate CLI template names in `render_device_configs`: the most specific entry with the same name now replaces earlier ones
+- Add `parse_vlans` and `expand_interfaces` template functions to `render_device_configs`, converting VLAN and interface ranges in CLI notation
 - Improve `render_device_configs` and `render_meraki_model` performance with many devices or large models
 
 ## 2.2.0

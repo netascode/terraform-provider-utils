@@ -392,7 +392,7 @@ func renderTemplateInstances(rctx *renderContext, deviceName string, deviceVars 
 				if err != nil {
 					return nil, nil, err
 				}
-				rendered, err := renderHCLTemplate(content, values)
+				rendered, err := renderHCLTemplateWithFunctions(content, values, deviceTemplateFunctions)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%s: cli template %q: %w", label, inst.template, err)
 				}
