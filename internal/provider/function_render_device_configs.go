@@ -70,12 +70,13 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"in increasing order of precedence. Templates of a device group additionally see that group's own `variables` on top of the device variables.\n" +
 			"- `GLOBAL`: the whole architecture section of the merged model (e.g. `GLOBAL.devices`).\n" +
 			"- `DEVICES`: all devices of the model in model order, including devices not managed in this run, each with its `name`, " +
-			"the names of the `device_groups` it belongs to (devices listing the group and devices listed by the group, in device group order, followed by groups the device lists that are not defined) " +
+			"the names of the `device_groups` it belongs to (devices listing the group and devices listed by the group, in device group order, followed by groups the device lists that are not defined), " +
+			"the names of the `template_instances` targeting it (by `devices` or `device_groups`, in instance order, also if all items of an instance are narrowed to other devices) " +
 			"and its `variables` (the variables of `global`, its device groups and the device, merged as for the device's own templates). " +
 			"This allows templates to refer to other devices, e.g. " +
 			"`[for d in DEVICES : d.variables.mgmt_ip if contains(d.device_groups, \"VPC\") && d.name != DEVICE.name]`.\n" +
 			"- `DEVICE`: the device being rendered, i.e. its element of `DEVICES` " +
-			"(e.g. `DEVICE.name`, `contains(DEVICE.device_groups, \"LEAFS\")`, `DEVICE.variables.leaf_id`). This allows a single template attached to a device group or `global` " +
+			"(e.g. `DEVICE.name`, `contains(DEVICE.device_groups, \"LEAFS\")`, `contains(DEVICE.template_instances, \"SERVICE_PROD_WEB\")`, `DEVICE.variables.leaf_id`). This allows a single template attached to a device group or `global` " +
 			"to select the entries of a shared list that apply to the device, e.g. " +
 			"`%{ for e in endpoints ~}%{ if contains(e.switches, DEVICE.name) ~}...%{ endif ~}%{ endfor ~}` in a file template.\n\n" +
 			"A user variable named `GLOBAL`, `DEVICES` or `DEVICE` takes precedence over the built-in variable of the same name.\n\n" +
@@ -362,13 +363,22 @@ func (rctx *renderContext) devicesNative() []any {
 		if rctx.resolveVarTags {
 			variables = resolveYamlTagsLenient(variables)
 		}
+		// Template instances targeting the device (also if all of their items
+		// are narrowed to other devices), in instance order
+		instances := []any{}
+		for _, inst := range rctx.instances {
+			if inst.targets[name] {
+				instances = append(instances, inst.name)
+			}
+		}
 		if _, dup := rctx.deviceIndex[name]; !dup {
 			rctx.deviceIndex[name] = len(result)
 		}
 		result = append(result, map[string]any{
-			"name":          name,
-			"device_groups": groups,
-			"variables":     variables,
+			"name":               name,
+			"device_groups":      groups,
+			"template_instances": instances,
+			"variables":          variables,
 		})
 	}
 	return result

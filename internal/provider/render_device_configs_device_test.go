@@ -308,9 +308,9 @@ nxos:
 `)
 	var want any
 	if err := json.Unmarshal([]byte(`[
-  {"name": "leaf1", "device_groups": ["LEAFS", "VPC"], "variables": {"site": "dc1", "role": "leaf", "vpc": true, "leaf_id": 1, "mgmt_ip": "10.0.0.1"}},
-  {"name": "leaf2", "device_groups": ["LEAFS", "VPC", "BORDER"], "variables": {"site": "dc1", "role": "border", "vpc": true, "leaf_id": 2, "mgmt_ip": "10.0.0.2"}},
-  {"name": "spine1", "device_groups": ["SPINES"], "variables": {"site": "dc1", "role": "none"}}
+  {"name": "leaf1", "device_groups": ["LEAFS", "VPC"], "template_instances": [], "variables": {"site": "dc1", "role": "leaf", "vpc": true, "leaf_id": 1, "mgmt_ip": "10.0.0.1"}},
+  {"name": "leaf2", "device_groups": ["LEAFS", "VPC", "BORDER"], "template_instances": [], "variables": {"site": "dc1", "role": "border", "vpc": true, "leaf_id": 2, "mgmt_ip": "10.0.0.2"}},
+  {"name": "spine1", "device_groups": ["SPINES"], "template_instances": [], "variables": {"site": "dc1", "role": "none"}}
 ]`), &want); err != nil {
 		t.Fatal(err)
 	}

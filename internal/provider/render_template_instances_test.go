@@ -731,3 +731,57 @@ func TestScalarsEqual(t *testing.T) {
 		}
 	}
 }
+
+// DEVICES and DEVICE list the names of the template instances targeting each
+// device (by devices or device groups), in instance order, also for devices not
+// managed in this run and for instances whose items are all narrowed to other
+// devices.
+func TestRenderDeviceConfigs_DevicesTemplateInstances(t *testing.T) {
+	model := mustYamlModel(t, `
+nxos:
+  templates:
+    - name: check
+      type: model
+      configuration:
+        system:
+          location: '${jsonencode({for d in DEVICES : d.name => d.template_instances})}'
+          contact: '${contains(DEVICE.template_instances, "WEB") ? "web" : fail("WEB is not deployed on ${DEVICE.name}")}'
+    - name: noop
+      type: model
+      configuration: {}
+  device_groups:
+    - name: LEAFS
+      devices: [leaf1, leaf2]
+  devices:
+    - name: leaf1
+      templates: [check]
+    - name: leaf2
+    - name: spine1
+      templates: [check]
+  template_instances:
+    - {name: APP, template: noop, devices: [leaf2]}
+    - {name: WEB, template: noop, device_groups: [LEAFS]}
+    - name: EP
+      template: noop
+      devices: [leaf1, leaf2]
+      items:
+        - devices: [leaf2]
+`)
+	result, err := renderDeviceConfigs(model, nil, []string{"leaf1"}, nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system := getMapVal(getMapVal(renderedDevice(t, result, "leaf1"), "configuration"), "system")
+	want := `{"leaf1":["WEB","EP"],"leaf2":["APP","WEB","EP"],"spine1":[]}`
+	if got := getStringVal(system, "location", ""); got != want {
+		t.Errorf("DEVICES template_instances = %s, want %s", got, want)
+	}
+	if got := getStringVal(system, "contact", ""); got != "web" {
+		t.Errorf("DEVICE.template_instances check = %q, want web", got)
+	}
+
+	_, err = renderDeviceConfigs(model, nil, []string{"spine1"}, nil, nil, false)
+	if err == nil || !strings.Contains(err.Error(), "WEB is not deployed on spine1") {
+		t.Errorf("spine1: error = %v, want fail message", err)
+	}
+}
