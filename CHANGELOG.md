@@ -5,6 +5,8 @@
 - Ignore `templates` and `variables` within the `configuration` of templates in `render_meraki_model`
 - Add `DEVICES` and `DEVICE` template variables to `render_device_configs`, available in model, file and CLI templates, configuration values and interface group configurations. `DEVICES` lists all devices of the model (also devices not managed in this run) with their `name`, `device_groups` (membership in either direction) and merged `variables`, e.g. to refer to a vPC peer or to the spines. `DEVICE` is the element of `DEVICES` of the device being rendered, e.g. to select the entries of a global list that apply to the device in a single template attached to a device group (`contains(e.switches, DEVICE.name)`). User variables named `DEVICES` or `DEVICE` take precedence
 - Add template instances (`<arch>.template_instances`) to `render_device_configs`, which apply a `file`, `model` or `cli` template to `devices` and `device_groups` with their own `variables`, only visible to the instance (e.g. one instance per service instead of a device group per service). `items` render the template once per item with item `variables`, optionally narrowed to some of the instance's devices and named for stable CLI template names. Instances are merged after device group configurations and before device templates. Unknown attributes, templates, devices and device groups are reported as errors
+- Fix `render_device_configs` not rendering template expressions and not removing null values nested in `file` template output
+- Fix duplicate CLI template names in `render_device_configs`: the most specific entry with the same name now replaces earlier ones
 - Improve `render_device_configs` and `render_meraki_model` performance with many devices or large models
 
 ## 2.2.0

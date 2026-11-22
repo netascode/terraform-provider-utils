@@ -55,6 +55,10 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"so that YAML loaders with `!env` support (e.g. `nac-validate`, `nac-test`) resolve it. A tag used within a string is kept as text " +
 			"(e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, " +
 			"use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`).\n\n" +
+			"CLI templates are named after their template: `<template>` for templates of `global` and the device, `<template>/<group>` for device group templates " +
+			"and `<template>/instance/<instance>` for template instances. An entry replaces an earlier entry with the same name, " +
+			"in increasing order of precedence (`global`, device groups, template instances, device templates, then the device's `cli_templates`), " +
+			"e.g. a template assigned both to `global` and to the device is only rendered once, and a device's `cli_templates` entry replaces a template of the same name.\n\n" +
 			"~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.\n\n" +
 			"## Template Variables\n\n" +
 			"The following variables are available inside `${}` template expressions in model templates, " +
@@ -880,7 +884,9 @@ func processFileTemplates(rctx *renderContext, templateNames []string, vars *tem
 		if err != nil {
 			return nil, fmt.Errorf("decoding file template %q: %w", name, err)
 		}
-		if m, ok := normalizeToMapStringAny(decoded); ok {
+		// Convert nested maps too, like the model, as the final template pass
+		// and the removal of null values only walk map[string]any
+		if m, ok := orderedMapToPlainMap(decoded).(map[string]any); ok {
 			results = append(results, m)
 		}
 	}
@@ -1114,8 +1120,24 @@ func applyDefaults(config map[string]any, defaults map[string]any) {
 	}
 }
 
+// collectCliTemplates collects the CLI templates of a device: global, device
+// group, template instance, device templates and direct cli_templates entries,
+// in increasing order of precedence. The Terraform modules use the names as
+// resource keys, so an entry replaces an earlier entry with the same name in
+// place (e.g. a template assigned globally and to the device, or a direct entry
+// overriding a template).
 func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templateVars, groups []matchedGroup, instanceCli []any) ([]any, error) {
 	var result []any
+	index := make(map[string]int)
+	add := func(entry any) {
+		name := getStringVal(toMapStringAny(entry), "name", "")
+		if i, ok := index[name]; ok && name != "" {
+			result[i] = entry
+			return
+		}
+		index[name] = len(result)
+		result = append(result, entry)
+	}
 
 	render := func(content string, vars *templateVars) (string, error) {
 		values, err := vars.get()
@@ -1139,7 +1161,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 		if err != nil {
 			return nil, fmt.Errorf("global cli template %q: %w", name, err)
 		}
-		result = append(result, map[string]any{
+		add(map[string]any{
 			"name":    name,
 			"content": rendered,
 			"order":   getIntVal(tmpl, "order", rctx.defaultOrder),
@@ -1163,7 +1185,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 			if err != nil {
 				return nil, fmt.Errorf("group %q cli template %q: %w", dgName, name, err)
 			}
-			result = append(result, map[string]any{
+			add(map[string]any{
 				"name":    fmt.Sprintf("%s/%s", name, dgName),
 				"content": rendered,
 				"order":   getIntVal(tmpl, "order", rctx.defaultOrder),
@@ -1173,7 +1195,9 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 	}
 
 	// Template instance CLI templates (rendered by renderTemplateInstances)
-	result = append(result, instanceCli...)
+	for _, entry := range instanceCli {
+		add(entry)
+	}
 
 	// Device CLI templates
 	for _, name := range getStringSlice(device, "templates") {
@@ -1189,7 +1213,7 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 		if err != nil {
 			return nil, fmt.Errorf("device cli template %q: %w", name, err)
 		}
-		result = append(result, map[string]any{
+		add(map[string]any{
 			"name":    name,
 			"content": rendered,
 			"order":   getIntVal(tmpl, "order", rctx.defaultOrder),
@@ -1209,7 +1233,9 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 				}
 			}
 		}
-		result = append(result, directCli...)
+		for _, entry := range directCli {
+			add(entry)
+		}
 	}
 
 	if result == nil {

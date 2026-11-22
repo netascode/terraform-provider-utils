@@ -12,6 +12,8 @@ Processes a Network as Code model structure to produce fully rendered per-device
 
 The `raw` output keeps `!env` tags unresolved, also where variables with `!env` tags are used in templates, while the `resolved` output resolves them, so that variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`). In the `raw` output, a value consisting only of an `!env` tag is kept as `!env VAR` and written as a YAML tag by `yaml_encode`, so that YAML loaders with `!env` support (e.g. `nac-validate`, `nac-test`) resolve it. A tag used within a string is kept as text (e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`).
 
+CLI templates are named after their template: `<template>` for templates of `global` and the device, `<template>/<group>` for device group templates and `<template>/instance/<instance>` for template instances. An entry replaces an earlier entry with the same name, in increasing order of precedence (`global`, device groups, template instances, device templates, then the device's `cli_templates`), e.g. a template assigned both to `global` and to the device is only rendered once, and a device's `cli_templates` entry replaces a template of the same name.
+
 ~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
 
 ## Template Variables
