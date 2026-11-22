@@ -12,6 +12,7 @@ description: |-
 - Add template inheritance (`templates` attribute of a template) to `render_meraki_model`
 - Add default variables (`variables` attribute of a template) to `render_meraki_model`
 - Ignore `templates` and `variables` within the `configuration` of templates in `render_meraki_model`
+- Add `DEVICES` and `DEVICE` template variables to `render_device_configs`, available in model, file and CLI templates, configuration values and interface group configurations. `DEVICES` lists all devices of the model (also devices not managed in this run) with their `name`, `device_groups` (membership in either direction) and merged `variables`, e.g. to refer to a vPC peer or to the spines. `DEVICE` is the element of `DEVICES` of the device being rendered, e.g. to select the entries of a global list that apply to the device in a single template attached to a device group (`contains(e.switches, DEVICE.name)`). User variables named `DEVICES` or `DEVICE` take precedence
 - Improve `render_device_configs` and `render_meraki_model` performance with many devices or large models
 
 ## 2.2.0

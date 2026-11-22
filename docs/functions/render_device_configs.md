@@ -14,6 +14,17 @@ The `raw` output keeps `!env` tags unresolved, also where variables with `!env` 
 
 ~> This function is intended for use within the [Network as Code](https://netascode.cisco.com/) Terraform modules and is not intended for standalone use.
 
+## Template Variables
+
+The following variables are available inside `${}` template expressions in model templates, file templates, CLI templates, configuration values and interface group configurations:
+
+- The `variables` of `global`, the device groups the device belongs to and the device, in increasing order of precedence. Templates of a device group additionally see that group's own `variables` on top of the device variables.
+- `GLOBAL`: the whole architecture section of the merged model (e.g. `GLOBAL.devices`).
+- `DEVICES`: all devices of the model in model order, including devices not managed in this run, each with its `name`, the names of the `device_groups` it belongs to (devices listing the group and devices listed by the group, in device group order, followed by groups the device lists that are not defined) and its `variables` (the variables of `global`, its device groups and the device, merged as for the device's own templates). This allows templates to refer to other devices, e.g. `[for d in DEVICES : d.variables.mgmt_ip if contains(d.device_groups, "VPC") && d.name != DEVICE.name]`.
+- `DEVICE`: the device being rendered, i.e. its element of `DEVICES` (e.g. `DEVICE.name`, `contains(DEVICE.device_groups, "LEAFS")`, `DEVICE.variables.leaf_id`). This allows a single template attached to a device group or `global` to select the entries of a shared list that apply to the device, e.g. `%{ for e in endpoints ~}%{ if contains(e.switches, DEVICE.name) ~}...%{ endif ~}%{ endfor ~}` in a file template.
+
+A user variable named `GLOBAL`, `DEVICES` or `DEVICE` takes precedence over the built-in variable of the same name.
+
 ## Template Functions
 
 The following functions are available inside `${}` template expressions in model templates, file templates, and CLI templates:
