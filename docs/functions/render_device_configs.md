@@ -8,7 +8,7 @@ description: |-
 
 # function: render_device_configs
 
-Processes a Network as Code model structure to produce fully rendered per-device configurations. Handles template evaluation, deep merging with precedence cascade (global → group → device), interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; scalar values and types may otherwise differ across levels, with the more specific level taking precedence.
+Processes a Network as Code model structure to produce fully rendered per-device configurations. Handles template evaluation, deep merging with precedence cascade (global → group → template instance → device), interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; scalar values and types may otherwise differ across levels, with the more specific level taking precedence.
 
 The `raw` output keeps `!env` tags unresolved, also where variables with `!env` tags are used in templates, while the `resolved` output resolves them, so that variables with `!env` tags can be used within strings (e.g. `Bearer ${token}`). In the `raw` output, a value consisting only of an `!env` tag is kept as `!env VAR` and written as a YAML tag by `yaml_encode`, so that YAML loaders with `!env` support (e.g. `nac-validate`, `nac-test`) resolve it. A tag used within a string is kept as text (e.g. `Bearer !env TOKEN`), which these tools do not resolve. If such a value needs to be resolved there, use a tag for the whole value instead (e.g. an environment variable containing `Bearer ...`).
 
@@ -24,6 +24,18 @@ The following variables are available inside `${}` template expressions in model
 - `DEVICE`: the device being rendered, i.e. its element of `DEVICES` (e.g. `DEVICE.name`, `contains(DEVICE.device_groups, "LEAFS")`, `DEVICE.variables.leaf_id`). This allows a single template attached to a device group or `global` to select the entries of a shared list that apply to the device, e.g. `%{ for e in endpoints ~}%{ if contains(e.switches, DEVICE.name) ~}...%{ endif ~}%{ endfor ~}` in a file template.
 
 A user variable named `GLOBAL`, `DEVICES` or `DEVICE` takes precedence over the built-in variable of the same name.
+
+## Template Instances
+
+A template instance (`<arch>.template_instances`) applies a template to a set of devices with its own variables, e.g. one instance per service, without a device group per service:
+
+- `name` (required, unique, without `/`) identifies the instance in error messages and in the names of CLI templates (`<template>/instance/<instance>`, which differ from the names of device group CLI templates, `<template>/<group>`, also if a device group has the same name).
+- `template` (required) is the name of a `file`, `model` or `cli` template in `<arch>.templates`.
+- `devices` and `device_groups` select the devices the instance applies to (at least one is required). Device groups include devices listing the group and devices listed by the group.
+- `variables` are only visible to this instance. Its template sees the variables of `global`, the device groups and the device (as other templates do), then the instance `variables`, in increasing order of precedence, plus `GLOBAL`, `DEVICES` and `DEVICE`.
+- `items` renders the template once per item, each with its own `variables` on top of the instance `variables`. An instance without `items` (or with `items` set to null) renders the template once, `items: []` not at all. An item's `devices` and `device_groups` narrow the devices of the instance: devices must be devices of the instance, device groups select the devices of the instance that are members. An item's optional `name` (unique within the instance, without `/`) names its CLI templates `<template>/instance/<instance>/<name>`, which do not change when items are added or reordered; CLI templates of items without a name are named `<template>/instance/<instance>/items[<index>]`.
+
+Unknown attributes, templates, devices and device groups, values of the wrong type, duplicate names and devices of an item outside its instance are reported as errors, all at once. The configurations of template instances are merged after the device group configurations and before the device templates, in instance and item order.
 
 ## Template Functions
 

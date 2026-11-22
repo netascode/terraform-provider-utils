@@ -45,7 +45,7 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 	resp.Definition = function.Definition{
 		Summary: "Render per-device configurations from a hierarchical Network-as-Code model",
 		MarkdownDescription: "Processes a Network as Code model structure to produce fully rendered per-device configurations. " +
-			"Handles template evaluation, deep merging with precedence cascade (global → group → device), " +
+			"Handles template evaluation, deep merging with precedence cascade (global → group → template instance → device), " +
 			"interface group merging, and CLI template collection. Supports nxos, iosxe, and iosxr architectures. " +
 			"Returns an error if the same attribute is a different kind of value (map, list, or scalar) at different precedence levels; " +
 			"scalar values and types may otherwise differ across levels, with the more specific level taking precedence.\n\n" +
@@ -72,6 +72,26 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"to select the entries of a shared list that apply to the device, e.g. " +
 			"`%{ for e in endpoints ~}%{ if contains(e.switches, DEVICE.name) ~}...%{ endif ~}%{ endfor ~}` in a file template.\n\n" +
 			"A user variable named `GLOBAL`, `DEVICES` or `DEVICE` takes precedence over the built-in variable of the same name.\n\n" +
+			"## Template Instances\n\n" +
+			"A template instance (`<arch>.template_instances`) applies a template to a set of devices with its own variables, " +
+			"e.g. one instance per service, without a device group per service:\n\n" +
+			"- `name` (required, unique, without `/`) identifies the instance in error messages and in the names of CLI templates (`<template>/instance/<instance>`, " +
+			"which differ from the names of device group CLI templates, `<template>/<group>`, also if a device group has the same name).\n" +
+			"- `template` (required) is the name of a `file`, `model` or `cli` template in `<arch>.templates`.\n" +
+			"- `devices` and `device_groups` select the devices the instance applies to (at least one is required). " +
+			"Device groups include devices listing the group and devices listed by the group.\n" +
+			"- `variables` are only visible to this instance. Its template sees the variables of `global`, the device groups and the device " +
+			"(as other templates do), then the instance `variables`, in increasing order of precedence, plus `GLOBAL`, `DEVICES` and `DEVICE`.\n" +
+			"- `items` renders the template once per item, each with its own `variables` on top of the instance `variables`. " +
+			"An instance without `items` (or with `items` set to null) renders the template once, `items: []` not at all. " +
+			"An item's `devices` and `device_groups` narrow the devices of the instance: devices must be devices of the instance, " +
+			"device groups select the devices of the instance that are members. " +
+			"An item's optional `name` (unique within the instance, without `/`) names its CLI templates `<template>/instance/<instance>/<name>`, " +
+			"which do not change when items are added or reordered; CLI templates of items without a name are named `<template>/instance/<instance>/items[<index>]`.\n\n" +
+			"Unknown attributes, templates, devices and device groups, values of the wrong type, duplicate names " +
+			"and devices of an item outside its instance are reported as errors, all at once. " +
+			"The configurations of template instances are merged after the device group configurations and before the device templates, " +
+			"in instance and item order.\n\n" +
 			"## Template Functions\n\n" +
 			"The following functions are available inside `${}` template expressions in model templates, " +
 			"file templates, and CLI templates:\n\n" +
@@ -244,6 +264,7 @@ type renderContext struct {
 	deviceGroups    []any
 	interfaceGroups []any
 	templates       map[string]map[string]any
+	instances       []templateInstance // parsed <arch>.template_instances
 	fileTemplates   map[string]string
 	defaultOrder    int
 	defaultStage    string
@@ -368,18 +389,7 @@ func devicesToCty(devices []any) (cty.Value, error) {
 // extractRenderContext) are resolved, leaving tags of unset environment
 // variables unchanged.
 func (rctx *renderContext) varsToCty(vars map[string]any, device string) (map[string]cty.Value, error) {
-	if rctx.resolveVarTags {
-		resolved := make(map[string]any, len(vars))
-		for k, v := range vars {
-			if k == "GLOBAL" {
-				resolved[k] = v
-				continue
-			}
-			resolved[k] = resolveYamlTagsLenient(v)
-		}
-		vars = resolved
-	}
-	result, err := nativeToCtyMap(vars)
+	result, err := rctx.userVarsToCty(vars)
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +417,45 @@ func (rctx *renderContext) varsToCty(vars map[string]any, device string) (map[st
 	return result, nil
 }
 
+// userVarsToCty converts user variables to cty values, resolving !env tags in
+// all variables except GLOBAL if resolveVarTags is set.
+func (rctx *renderContext) userVarsToCty(vars map[string]any) (map[string]cty.Value, error) {
+	if rctx.resolveVarTags {
+		resolved := make(map[string]any, len(vars))
+		for k, v := range vars {
+			if k == "GLOBAL" {
+				resolved[k] = v
+				continue
+			}
+			resolved[k] = resolveYamlTagsLenient(v)
+		}
+		vars = resolved
+	}
+	return nativeToCtyMap(vars)
+}
+
+// overlayVarsToCty returns the converted variables of base with the overlay
+// variables on top, converting only the overlay variables. User variables of
+// the overlay take precedence over the built-in variables of base.
+func (rctx *renderContext) overlayVarsToCty(base *templateVars, overlay map[string]any) (map[string]cty.Value, error) {
+	baseValues, err := base.get()
+	if err != nil {
+		return nil, err
+	}
+	overlayValues, err := rctx.userVarsToCty(overlay)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]cty.Value, len(baseValues)+len(overlayValues))
+	for k, v := range baseValues {
+		result[k] = v
+	}
+	for k, v := range overlayValues {
+		result[k] = v
+	}
+	return result, nil
+}
+
 // templateVars holds the template variables of a device or device group and
 // converts them to cty on first use, so that devices without templates or
 // ${...} expressions skip the conversion entirely, and each device group's
@@ -415,7 +464,8 @@ type templateVars struct {
 	rctx   *renderContext
 	label  string // error context, e.g. `group "leafs" vars`
 	native map[string]any
-	device string // name of the device rendered, for the DEVICE variable (not added if empty)
+	device string        // name of the device rendered, for the DEVICE variable (not added if empty)
+	base   *templateVars // if set, native are overlay variables on top of the variables of base
 	values map[string]cty.Value
 	err    error
 	done   bool
@@ -427,7 +477,11 @@ func newTemplateVars(rctx *renderContext, label string, native map[string]any, d
 
 func (v *templateVars) get() (map[string]cty.Value, error) {
 	if !v.done {
-		v.values, v.err = v.rctx.varsToCty(v.native, v.device)
+		if v.base != nil {
+			v.values, v.err = v.rctx.overlayVarsToCty(v.base, v.native)
+		} else {
+			v.values, v.err = v.rctx.varsToCty(v.native, v.device)
+		}
 		if v.err != nil {
 			v.err = fmt.Errorf("%s: %w", v.label, v.err)
 		}
@@ -520,12 +574,20 @@ func extractRenderContext(model map[string]any, arch string, fileTemplates map[s
 		}
 	}
 
+	devices := getSliceVal(archConfig, "devices")
+	deviceGroups := getSliceVal(archConfig, "device_groups")
+	instances, err := parseTemplateInstances(archConfig, templates, devices, deviceGroups)
+	if err != nil {
+		return nil, err
+	}
+
 	return &renderContext{
 		arch:            arch,
 		archConfig:      archConfig,
 		global:          getMapVal(archConfig, "global"),
-		devices:         getSliceVal(archConfig, "devices"),
-		deviceGroups:    getSliceVal(archConfig, "device_groups"),
+		devices:         devices,
+		deviceGroups:    deviceGroups,
+		instances:       instances,
 		interfaceGroups: getSliceVal(archConfig, "interface_groups"),
 		templates:       templates,
 		fileTemplates:   fileTemplates,
@@ -654,6 +716,12 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		}
 	}
 
+	// Template instances that apply to the device
+	instanceConfigs, instanceCli, err := renderTemplateInstances(rctx, deviceName, ctyVars)
+	if err != nil {
+		return nil, err
+	}
+
 	deviceFileTmpls, err := processFileTemplates(rctx, getStringSlice(device, "templates"), ctyVars)
 	if err != nil {
 		return nil, fmt.Errorf("device file templates: %w", err)
@@ -670,7 +738,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 		return nil, fmt.Errorf("device model templates: %w", err)
 	}
 
-	// 4d. 9-level precedence cascade
+	// 4d. 10-level precedence cascade
 	merged := make(map[string]any)
 	// 1. Global file templates
 	for _, ft := range globalFileTmpls {
@@ -704,17 +772,23 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 			return nil, fmt.Errorf("group configuration: %w", err)
 		}
 	}
-	// 7. Device file templates
+	// 7. Template instances
+	for _, ic := range instanceConfigs {
+		if _, err := MergeMaps(ic, merged, true); err != nil {
+			return nil, fmt.Errorf("template instances: %w", err)
+		}
+	}
+	// 8. Device file templates
 	for _, ft := range deviceFileTmpls {
 		if _, err := MergeMaps(ft, merged, true); err != nil {
 			return nil, fmt.Errorf("device file templates: %w", err)
 		}
 	}
-	// 8. Device model templates
+	// 9. Device model templates
 	if _, err := MergeMaps(deviceModelTmpl, merged, true); err != nil {
 		return nil, fmt.Errorf("device model templates: %w", err)
 	}
-	// 9. Device configuration
+	// 10. Device configuration
 	if _, err := MergeMaps(deepCopy(getMapVal(device, "configuration")), merged, true); err != nil {
 		return nil, fmt.Errorf("device configuration: %w", err)
 	}
@@ -740,7 +814,7 @@ func renderSingleDevice(rctx *renderContext, device map[string]any) (map[string]
 	}
 
 	// 4g. CLI templates
-	cliTemplates, err := collectCliTemplates(rctx, device, ctyVars, groups)
+	cliTemplates, err := collectCliTemplates(rctx, device, ctyVars, groups, instanceCli)
 	if err != nil {
 		return nil, fmt.Errorf("cli templates: %w", err)
 	}
@@ -1040,7 +1114,7 @@ func applyDefaults(config map[string]any, defaults map[string]any) {
 	}
 }
 
-func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templateVars, groups []matchedGroup) ([]any, error) {
+func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templateVars, groups []matchedGroup, instanceCli []any) ([]any, error) {
 	var result []any
 
 	render := func(content string, vars *templateVars) (string, error) {
@@ -1097,6 +1171,9 @@ func collectCliTemplates(rctx *renderContext, device map[string]any, vars *templ
 			})
 		}
 	}
+
+	// Template instance CLI templates (rendered by renderTemplateInstances)
+	result = append(result, instanceCli...)
 
 	// Device CLI templates
 	for _, name := range getStringSlice(device, "templates") {
