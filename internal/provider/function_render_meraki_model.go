@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -66,6 +67,12 @@ func (r RenderMerakiModelFunction) Definition(_ context.Context, _ function.Defi
 			"A template can define default values for template variables in its own `variables` attribute. The default variables of all " +
 			"applied templates (including inherited ones) are merged in application order, so that a template overrides the defaults " +
 			"of its parents and of templates applied before it. Default variable values are not rendered as templates.\n\n" +
+			"Variables are deep merged across all levels (template defaults, network and device `variables`): maps are merged recursively, " +
+			"so that e.g. a network can override a single key of a map variable defined by a template (`wireless: {guest_ssid: Guest-1}`) " +
+			"and keep its other keys, while lists and scalar values replace the value of a lower level as a whole. An empty map therefore " +
+			"keeps all keys of the lower level, while an empty list replaces the list of the lower level. A `null` value replaces the value " +
+			"of a lower level (e.g. to unset a default) and is replaced by any value. A variable must otherwise be the same kind of value " +
+			"(map, list or scalar) at every level, or an error naming the conflicting variables is returned.\n\n" +
 			"The following variables are available in templates, in increasing order of precedence:\n\n" +
 			"- Network templates: the default variables of the applied network templates " +
 			"and the network's `variables`.\n" +
@@ -73,7 +80,11 @@ func (r RenderMerakiModelFunction) Definition(_ context.Context, _ function.Defi
 			"the network's `variables` and the device's `variables`.\n\n" +
 			"The `variables` of a rendered network include the default variables of its templates. The `variables` of a rendered device " +
 			"include the default variables of its templates that are not overridden by the network's `variables`, so that the variables " +
-			"used for the device templates are always the rendered network `variables` merged with the rendered device `variables`.\n\n" +
+			"used for the device templates are the rendered network `variables` deep merged with the rendered device `variables`. " +
+			"There are two exceptions, both caused by a device-level `null`: as `null` values are removed from the result, a variable " +
+			"that is `null` for a device (e.g. through a device template default) shows the value of the network instead; and if a device " +
+			"template default sets a map variable of the network template defaults to `null` and a network or device variable sets it to a " +
+			"map again, the merged variables also contain the keys of the network template default, which were not used.\n\n" +
 			"Only template content is rendered, `${}` expressions in the regular configuration are left untouched. " +
 			"Returns an error if the same attribute is a different kind of value (map, list, or scalar) in a template and in the configuration.\n\n" +
 			"The result contains the rendered model with `!env` tags preserved (`raw`), the rendered model with `!env` tags resolved (`resolved`) " +
@@ -423,7 +434,11 @@ func (s *merakiTemplateSet) expand(names []string) (*merakiExpansion, error) {
 		return nil, err
 	}
 	order := reversedStrings(precedence)
-	e := &merakiExpansion{templates: order, defaultVars: s.defaultVariables(order)}
+	defaultVars, err := s.defaultVariables(order)
+	if err != nil {
+		return nil, err
+	}
+	e := &merakiExpansion{templates: order, defaultVars: defaultVars}
 	s.expansions[key] = e
 	return e, nil
 }
@@ -543,17 +558,102 @@ func inAnyTail(item string, seqs [][]string) bool {
 
 // defaultVariables merges the default variables of the given templates in
 // order, later templates taking precedence.
-func (s *merakiTemplateSet) defaultVariables(names []string) map[string]any {
+func (s *merakiTemplateSet) defaultVariables(names []string) (map[string]any, error) {
 	var result map[string]any
+	var applied []string
 	for _, name := range names {
 		vars := toMapStringAny(s.templates[name]["variables"])
 		if len(vars) == 0 {
 			continue
 		}
-		if result == nil {
-			result = make(map[string]any, len(vars))
+		merged, err := mergeMerakiVariables(result, vars)
+		if err != nil {
+			return nil, fmt.Errorf("template defaults (%s) vs template defaults of %q: %w", merakiTemplateList(applied), name, err)
 		}
-		mergeShallowInto(result, vars)
+		result = merged
+		applied = append(applied, name)
+	}
+	return result, nil
+}
+
+// mergeMerakiVariables returns overlay deep merged onto base: maps are merged
+// recursively, and every other value (scalars, lists, !env tags) of overlay
+// replaces the value of base. A site can therefore override a single key of a
+// map variable (e.g. `wireless: {guest_ssid: X}`) and keep the other keys of
+// the template default, while a list is always replaced as a whole.
+//
+// A variable must be the same kind of value (map, list or scalar) in base and
+// overlay, otherwise an error listing all conflicting variables is returned,
+// like for conflicting attributes of template configurations. This also keeps
+// the rendered network and device variables consistent with the variables used
+// for rendering (see merakiVariablesNotOverridden), except where a device-level
+// null hides a network-level value (see the function description). null is
+// compatible with every kind: it replaces a value (e.g. to unset a default) and
+// is replaced.
+// The error only contains variable names, not values, which may be resolved
+// !env tags.
+//
+// Neither input is modified; the result may share unmodified values with them.
+func mergeMerakiVariables(base, overlay map[string]any) (map[string]any, error) {
+	var conflicts []string
+	result := mergeMerakiVariablesAt(base, overlay, "", &conflicts)
+	if len(conflicts) > 0 {
+		sort.Strings(conflicts)
+		return nil, fmt.Errorf("conflicting types for %s", strings.Join(conflicts, ", "))
+	}
+	return result, nil
+}
+
+func mergeMerakiVariablesAt(base, overlay map[string]any, path string, conflicts *[]string) map[string]any {
+	result := make(map[string]any, len(base)+len(overlay))
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, v := range overlay {
+		b := result[k]
+		if b == nil || v == nil {
+			result[k] = v
+			continue
+		}
+		childPath := conflictPath(path, k)
+		baseMap, baseIsMap := normalizeToMapStringAny(b)
+		overlayMap, overlayIsMap := normalizeToMapStringAny(v)
+		if baseIsMap && overlayIsMap {
+			result[k] = mergeMerakiVariablesAt(baseMap, overlayMap, childPath, conflicts)
+			continue
+		}
+		if baseKind, overlayKind := shapeLabel(b), shapeLabel(v); baseKind != overlayKind {
+			*conflicts = append(*conflicts, fmt.Sprintf("variable %q (%s vs %s)", childPath, baseKind, overlayKind))
+			continue
+		}
+		result[k] = v
+	}
+	return result
+}
+
+// merakiVariablesNotOverridden returns the parts of defaults that own does not
+// override: keys missing in own and, for maps in both, recursively the keys
+// missing in the map of own. Merging the result onto own (see
+// mergeMerakiVariables) gives the same values as merging own onto defaults.
+func merakiVariablesNotOverridden(defaults, own map[string]any) map[string]any {
+	result := make(map[string]any, len(defaults))
+	for k, v := range defaults {
+		ownValue, overridden := own[k]
+		if !overridden {
+			result[k] = v
+			continue
+		}
+		defaultMap, ok := normalizeToMapStringAny(v)
+		if !ok {
+			continue
+		}
+		ownMap, ok := normalizeToMapStringAny(ownValue)
+		if !ok {
+			continue
+		}
+		if rest := merakiVariablesNotOverridden(defaultMap, ownMap); len(rest) > 0 {
+			result[k] = rest
+		}
 	}
 	return result
 }
@@ -641,7 +741,7 @@ func renderMerakiOrganization(rctx *merakiRenderContext, org map[string]any) (ma
 
 func renderMerakiNetwork(rctx *merakiRenderContext, network map[string]any) (map[string]any, error) {
 	// 1. Apply network templates with template default variables + network variables
-	rendered, networkDefaults, err := applyMerakiTemplates(rctx, network, rctx.networkTemplates, merakiParentVars{})
+	rendered, networkExpansion, err := applyMerakiTemplates(rctx, network, rctx.networkTemplates, merakiParentVars{})
 	if err != nil {
 		return nil, err
 	}
@@ -652,7 +752,10 @@ func renderMerakiNetwork(rctx *merakiRenderContext, network map[string]any) (map
 	if !ok {
 		return rendered, nil
 	}
-	parent := merakiParentVars{defaults: networkDefaults, own: getMapVal(network, "variables")}
+	parent := merakiParentVars{device: true, own: getMapVal(network, "variables")}
+	if networkExpansion != nil {
+		parent.templates, parent.defaults = networkExpansion.templates, networkExpansion.defaultVars
+	}
 	for i, d := range devices {
 		device := toMapStringAny(d)
 		if device == nil {
@@ -691,6 +794,10 @@ func merakiTemplateVars(rctx *merakiRenderContext, vars map[string]any) (map[str
 
 // merakiParentVars are the variables of the network a device belongs to.
 type merakiParentVars struct {
+	// device is set when rendering the templates of a device of the network
+	device bool
+	// templates are the applied templates of the network, for error messages
+	templates []string
 	// defaults are the default variables of the network's templates, with a
 	// lower precedence than the default variables of the device's templates
 	defaults map[string]any
@@ -711,7 +818,7 @@ type merakiParentVars struct {
 // map, obj is not modified. The default variables of the applied templates are
 // returned as well; they must not be modified. The variables are
 // only converted to cty if obj references templates.
-func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *merakiTemplateSet, parent merakiParentVars) (map[string]any, map[string]any, error) {
+func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *merakiTemplateSet, parent merakiParentVars) (map[string]any, *merakiExpansion, error) {
 	templateNames := getStringSlice(obj, "templates")
 	if len(templateNames) == 0 {
 		return deepCopy(obj).(map[string]any), nil, nil
@@ -721,7 +828,10 @@ func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *me
 		return nil, nil, err
 	}
 	expanded, defaultVars := expansion.templates, expansion.defaultVars
-	nativeVars := mergeShallow(mergeShallow(mergeShallow(parent.defaults, defaultVars), parent.own), getMapVal(obj, "variables"))
+	nativeVars, err := mergeMerakiVariablesLeveled(parent, expanded, defaultVars, getMapVal(obj, "variables"))
+	if err != nil {
+		return nil, nil, err
+	}
 	vars, err := merakiTemplateVars(rctx, nativeVars)
 	if err != nil {
 		return nil, nil, err
@@ -774,16 +884,54 @@ func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *me
 		return nil, nil, fmt.Errorf("merging templates: %w", err)
 	}
 	result := orderedMapToPlainMap(merged).(map[string]any)
-	effectiveDefaults := make(map[string]any, len(defaultVars))
-	for k, v := range defaultVars {
-		if _, overridden := parent.own[k]; !overridden {
-			effectiveDefaults[k] = v
-		}
-	}
+	effectiveDefaults := merakiVariablesNotOverridden(defaultVars, parent.own)
 	if len(effectiveDefaults) > 0 {
-		result["variables"] = mergeShallow(orderedMapToPlainMap(deepCopy(effectiveDefaults)).(map[string]any), getMapVal(result, "variables"))
+		// Cannot conflict, as the variables were merged successfully above
+		renderedVars, err := mergeMerakiVariables(orderedMapToPlainMap(deepCopy(effectiveDefaults)).(map[string]any), getMapVal(result, "variables"))
+		if err != nil {
+			return nil, nil, fmt.Errorf("variables: %w", err)
+		}
+		result["variables"] = renderedVars
 	}
-	return result, defaultVars, nil
+	return result, expansion, nil
+}
+
+// mergeMerakiVariablesLeveled merges the variables used to render the
+// templates of a network or device, in increasing order of precedence: the
+// default variables of the network's templates (devices only), the default
+// variables of the applied templates, the network's variables (devices only)
+// and the variables of the network or device itself. Errors name the
+// conflicting levels and their templates.
+func mergeMerakiVariablesLeveled(parent merakiParentVars, templates []string, defaults, own map[string]any) (map[string]any, error) {
+	if !parent.device {
+		vars, err := mergeMerakiVariables(defaults, own)
+		if err != nil {
+			return nil, fmt.Errorf("template defaults (%s) vs network variables: %w", merakiTemplateList(templates), err)
+		}
+		return vars, nil
+	}
+	vars, err := mergeMerakiVariables(parent.defaults, defaults)
+	if err != nil {
+		return nil, fmt.Errorf("network template defaults (%s) vs device template defaults (%s): %w",
+			merakiTemplateList(parent.templates), merakiTemplateList(templates), err)
+	}
+	if vars, err = mergeMerakiVariables(vars, parent.own); err != nil {
+		return nil, fmt.Errorf("network and device template defaults (%s; %s) vs network variables: %w",
+			merakiTemplateList(parent.templates), merakiTemplateList(templates), err)
+	}
+	if vars, err = mergeMerakiVariables(vars, own); err != nil {
+		return nil, fmt.Errorf("network variables and network and device template defaults (%s; %s) vs device variables: %w",
+			merakiTemplateList(parent.templates), merakiTemplateList(templates), err)
+	}
+	return vars, nil
+}
+
+// merakiTemplateList formats template names for error messages.
+func merakiTemplateList(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return quoteJoin(names)
 }
 
 // renderMerakiTemplateValues walks a native value tree and renders every string
