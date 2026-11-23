@@ -66,7 +66,25 @@ func (r RenderMerakiModelFunction) Definition(_ context.Context, _ function.Defi
 			"use the `templates` and `variables` attributes of the template instead.\n\n" +
 			"A template can define default values for template variables in its own `variables` attribute. The default variables of all " +
 			"applied templates (including inherited ones) are merged in application order, so that a template overrides the defaults " +
-			"of its parents and of templates applied before it. Default variable values are not rendered as templates.\n\n" +
+			"of its parents and of templates applied before it.\n\n" +
+			"Variable values (template defaults, network and device `variables`, also nested within maps and lists) can be computed " +
+			"from other variables: a string value containing a template interpolation (`${...}`) or directive (`%{...}`) is evaluated " +
+			"with the merged variables of the network or device before the templates are rendered, e.g. " +
+			"`infra_subnet: 10.${site_octet}.255.0/24` as a template default with `site_octet` defined by the network. " +
+			"As in model templates, a value consisting of a single interpolation keeps the type of its result, e.g. " +
+			"`ap_names: ${[for i, ap in aps : format(\"%s-AP-%02d\", site_prefix, i + 1)]}` is a list. " +
+			"Expressions can refer to other computed variables, also to other keys of the same map (`guest_ssid: ${wireless.corp_ssid}-Guest`, " +
+			"also dynamically, e.g. `${lookup(wireless, \"corp_ssid\")}`, where the variable itself is `null`), " +
+			"and are evaluated in the order of their references; a cycle (e.g. `tags: ${concat(tags, [\"x\"])}`) is an error. " +
+			"All variables are evaluated, also those not used by a template, so a reference to a variable that may not be defined " +
+			"needs `try()` (e.g. `${try(syslog_port, 514)}`). Computed values are merged like literal values once they are evaluated: " +
+			"a map overriding some keys of a computed map (or a computed map overriding a map) is deep merged with it, while a literal list " +
+			"or scalar value replaces a computed value without evaluating it, e.g. a computed list default replaced by a literal list. " +
+			"`$${` and `%%{` are a literal `${` and `%{`; values of `!env` tags are never evaluated. " +
+			"For the templates of a device, variables are evaluated with the variables of the device, so that a network-level expression " +
+			"referring to a variable the device overrides gets the device's value; such variables are included in the rendered device `variables`. " +
+			"The variables of networks without templates, and of devices without templates that have own `variables` with expressions, " +
+			"are evaluated as well (other devices without templates use the variables of their network).\n\n" +
 			"Variables are deep merged across all levels (template defaults, network and device `variables`): maps are merged recursively, " +
 			"so that e.g. a network can override a single key of a map variable defined by a template (`wireless: {guest_ssid: Guest-1}`) " +
 			"and keep its other keys, while lists and scalar values replace the value of a lower level as a whole. An empty map therefore " +
@@ -245,6 +263,8 @@ type merakiRenderContext struct {
 	deviceTemplates  *merakiTemplateSet
 	fileTemplates    map[string]string
 	resolveVarTags   bool
+	// expressions memoizes parsed variable expressions
+	expressions merakiExpressionCache
 }
 
 // renderMerakiModel applies network and device templates to the merged model and
@@ -276,6 +296,7 @@ func renderMerakiModelContext(model map[string]any, fileTemplates map[string]str
 		deviceTemplates:  deviceTemplates,
 		fileTemplates:    fileTemplates,
 		resolveVarTags:   resolveVarTags,
+		expressions:      make(merakiExpressionCache),
 	}
 
 	result := make(map[string]any, len(meraki))
@@ -590,13 +611,30 @@ func (s *merakiTemplateSet) defaultVariables(names []string) (map[string]any, er
 // null hides a network-level value (see the function description). null is
 // compatible with every kind: it replaces a value (e.g. to unset a default) and
 // is replaced.
+//
+// A computed value (a variable expression, i.e. a string containing `${` or
+// `%{`) only has a kind once it is evaluated. If a map or another computed
+// value is merged with it, the merge is deferred (see merakiDeferredMerge) and
+// done after evaluation with the same rules, so that e.g. a network can
+// override a single key of a computed map default. A literal scalar or list
+// replaces a computed value without evaluating it, so that e.g. a computed
+// list default can be replaced by a literal list.
 // The error only contains variable names, not values, which may be resolved
 // !env tags.
 //
 // Neither input is modified; the result may share unmodified values with them.
 func mergeMerakiVariables(base, overlay map[string]any) (map[string]any, error) {
+	return mergeMerakiVariablesMode(base, overlay, "", false)
+}
+
+// mergeMerakiVariablesMode is mergeMerakiVariables, with marked set when
+// merging variables whose expressions are marked (see markMerakiVariables), so
+// that only marked expressions are computed values and not strings containing
+// `${` (e.g. evaluated values or resolved !env tags). path prefixes the
+// variable names in errors.
+func mergeMerakiVariablesMode(base, overlay map[string]any, path string, marked bool) (map[string]any, error) {
 	var conflicts []string
-	result := mergeMerakiVariablesAt(base, overlay, "", &conflicts)
+	result := mergeMerakiVariablesAt(base, overlay, path, &conflicts, marked)
 	if len(conflicts) > 0 {
 		sort.Strings(conflicts)
 		return nil, fmt.Errorf("conflicting types for %s", strings.Join(conflicts, ", "))
@@ -604,7 +642,7 @@ func mergeMerakiVariables(base, overlay map[string]any) (map[string]any, error) 
 	return result, nil
 }
 
-func mergeMerakiVariablesAt(base, overlay map[string]any, path string, conflicts *[]string) map[string]any {
+func mergeMerakiVariablesAt(base, overlay map[string]any, path string, conflicts *[]string, marked bool) map[string]any {
 	result := make(map[string]any, len(base)+len(overlay))
 	for k, v := range base {
 		result[k] = v
@@ -616,10 +654,26 @@ func mergeMerakiVariablesAt(base, overlay map[string]any, path string, conflicts
 			continue
 		}
 		childPath := conflictPath(path, k)
+		baseComputed, overlayComputed := isMerakiComputed(b, marked), isMerakiComputed(v, marked)
 		baseMap, baseIsMap := normalizeToMapStringAny(b)
 		overlayMap, overlayIsMap := normalizeToMapStringAny(v)
-		if baseIsMap && overlayIsMap {
-			result[k] = mergeMerakiVariablesAt(baseMap, overlayMap, childPath, conflicts)
+		switch {
+		case overlayComputed:
+			if baseComputed || baseIsMap {
+				result[k] = newMerakiDeferredMerge(b, v)
+			} else {
+				result[k] = v
+			}
+			continue
+		case baseComputed:
+			if overlayIsMap {
+				result[k] = newMerakiDeferredMerge(b, v)
+			} else {
+				result[k] = v
+			}
+			continue
+		case baseIsMap && overlayIsMap:
+			result[k] = mergeMerakiVariablesAt(baseMap, overlayMap, childPath, conflicts, marked)
 			continue
 		}
 		if baseKind, overlayKind := shapeLabel(b), shapeLabel(v); baseKind != overlayKind {
@@ -752,7 +806,20 @@ func renderMerakiNetwork(rctx *merakiRenderContext, network map[string]any) (map
 	if !ok {
 		return rendered, nil
 	}
-	parent := merakiParentVars{device: true, own: getMapVal(network, "variables")}
+	// The rendered network variables are compared with the evaluated device
+	// variables (see merakiRenderedVariables), whose !env tags are resolved when
+	// rendering with resolved tags; those of a network without templates and
+	// expressions are not yet
+	renderedVars := getMapVal(rendered, "variables")
+	if rctx.resolveVarTags {
+		renderedVars = resolveYamlTagsLenient(renderedVars).(map[string]any)
+	}
+	parent := merakiParentVars{
+		device:   true,
+		own:      getMapVal(network, "variables"),
+		rendered: renderedVars,
+		scopes:   make(map[string]*merakiScope),
+	}
 	if networkExpansion != nil {
 		parent.templates, parent.defaults = networkExpansion.templates, networkExpansion.defaultVars
 	}
@@ -779,19 +846,6 @@ func merakiDeviceName(device map[string]any) string {
 	return getStringVal(device, "serial", "")
 }
 
-// merakiTemplateVars converts the given variables to cty template variables.
-func merakiTemplateVars(rctx *merakiRenderContext, vars map[string]any) (map[string]cty.Value, error) {
-	plain := orderedMapToPlainMap(vars).(map[string]any)
-	if rctx.resolveVarTags {
-		plain = resolveYamlTagsLenient(plain).(map[string]any)
-	}
-	ctyVars, err := nativeToCtyMap(plain)
-	if err != nil {
-		return nil, fmt.Errorf("converting variables: %w", err)
-	}
-	return ctyVars, nil
-}
-
 // merakiParentVars are the variables of the network a device belongs to.
 type merakiParentVars struct {
 	// device is set when rendering the templates of a device of the network
@@ -804,6 +858,11 @@ type merakiParentVars struct {
 	// own are the network's own variables, with a higher precedence than the
 	// default variables of the device's templates
 	own map[string]any
+	// rendered are the rendered (evaluated) variables of the network
+	rendered map[string]any
+	// scopes caches the variables of the devices of the network without own
+	// variables, by their template references (see applyMerakiTemplates)
+	scopes map[string]*merakiScope
 }
 
 // applyMerakiTemplates renders the templates referenced by obj["templates"]
@@ -814,28 +873,49 @@ type merakiParentVars struct {
 // default variables of the applied templates that are not overridden by the
 // parent's own variables are added to the variables of the result, so that the
 // variables used for rendering are always the rendered variables of the parent
-// (if any) merged with the rendered variables of obj. The result is a new plain
-// map, obj is not modified. The default variables of the applied templates are
-// returned as well; they must not be modified. The variables are
-// only converted to cty if obj references templates.
+// (if any) merged with the rendered variables of obj. Variable expressions are
+// evaluated with the merged variables before the templates are rendered (see
+// evaluateMerakiVariables), and the rendered variables contain the evaluated
+// values. The result is a new plain map, obj is not modified. The default
+// variables of the applied templates are returned as well; they must not be
+// modified. obj is returned as is if it neither references templates nor
+// contains variable expressions.
 func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *merakiTemplateSet, parent merakiParentVars) (map[string]any, *merakiExpansion, error) {
 	templateNames := getStringSlice(obj, "templates")
-	if len(templateNames) == 0 {
+	own := getMapVal(obj, "variables")
+	if len(templateNames) == 0 && !merakiVariablesHaveExpressions(own) {
 		return deepCopy(obj).(map[string]any), nil, nil
 	}
-	expansion, err := set.expand(templateNames)
-	if err != nil {
-		return nil, nil, err
+	var expansion *merakiExpansion
+	var expanded []string
+	var defaultVars map[string]any
+	if len(templateNames) > 0 {
+		var err error
+		if expansion, err = set.expand(templateNames); err != nil {
+			return nil, nil, err
+		}
+		expanded, defaultVars = expansion.templates, expansion.defaultVars
 	}
-	expanded, defaultVars := expansion.templates, expansion.defaultVars
-	nativeVars, err := mergeMerakiVariablesLeveled(parent, expanded, defaultVars, getMapVal(obj, "variables"))
-	if err != nil {
-		return nil, nil, err
+	// Devices of a network without own variables that reference the same
+	// templates use the same variables, which are therefore evaluated and
+	// converted once per network
+	var scope *merakiScope
+	scopeKey := ""
+	cacheable := parent.scopes != nil && len(own) == 0
+	if cacheable {
+		scopeKey = strings.Join(templateNames, "\x00")
+		scope = parent.scopes[scopeKey]
 	}
-	vars, err := merakiTemplateVars(rctx, nativeVars)
-	if err != nil {
-		return nil, nil, err
+	if scope == nil {
+		var err error
+		if scope, err = merakiScopeVariables(rctx, parent, expanded, defaultVars, own); err != nil {
+			return nil, nil, err
+		}
+		if cacheable {
+			parent.scopes[scopeKey] = scope
+		}
 	}
+	evaluated, computed, vars := scope.evaluated, scope.computed, scope.vars
 
 	merged := make(map[string]any)
 	for _, name := range expanded {
@@ -884,16 +964,82 @@ func applyMerakiTemplates(rctx *merakiRenderContext, obj map[string]any, set *me
 		return nil, nil, fmt.Errorf("merging templates: %w", err)
 	}
 	result := orderedMapToPlainMap(merged).(map[string]any)
-	effectiveDefaults := merakiVariablesNotOverridden(defaultVars, parent.own)
-	if len(effectiveDefaults) > 0 {
-		// Cannot conflict, as the variables were merged successfully above
-		renderedVars, err := mergeMerakiVariables(orderedMapToPlainMap(deepCopy(effectiveDefaults)).(map[string]any), getMapVal(result, "variables"))
-		if err != nil {
-			return nil, nil, fmt.Errorf("variables: %w", err)
-		}
+	renderedVars, err := merakiRenderedVariables(parent, defaultVars, getMapVal(result, "variables"), evaluated, computed)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(renderedVars) > 0 {
 		result["variables"] = renderedVars
 	}
 	return result, expansion, nil
+}
+
+// merakiScope holds the variables used to render the templates of a network
+// or device. It may be shared between devices, so it must not be modified.
+type merakiScope struct {
+	// evaluated are the merged variables with evaluated expressions
+	evaluated map[string]any
+	// computed is set if the variables contain expressions
+	computed bool
+	// vars are the evaluated variables converted to cty
+	vars map[string]cty.Value
+}
+
+// merakiScopeVariables merges the variables of a network or device (see
+// mergeMerakiVariablesLeveled), resolves their !env tags if requested and
+// evaluates their expressions.
+func merakiScopeVariables(rctx *merakiRenderContext, parent merakiParentVars, templates []string, defaults, own map[string]any) (*merakiScope, error) {
+	nativeVars, err := mergeMerakiVariablesLeveled(parent, templates, defaults, own)
+	if err != nil {
+		return nil, err
+	}
+	plainVars := orderedMapToPlainMap(nativeVars).(map[string]any)
+	evaluated, computed, err := evaluateMerakiVariables(plainVars, rctx.expressions, rctx.resolveVarTags)
+	if err != nil {
+		return nil, fmt.Errorf("variables:\n%w", err)
+	}
+	vars, err := nativeToCtyMap(evaluated)
+	if err != nil {
+		return nil, fmt.Errorf("converting variables: %w", err)
+	}
+	return &merakiScope{evaluated: evaluated, computed: computed, vars: vars}, nil
+}
+
+// merakiRenderedVariables returns the rendered variables of a network or
+// device: for a network all its variables (the evaluated variables), for a
+// device the default variables of its templates not overridden by the
+// network's variables and its own variables, so that the variables used for
+// rendering are the rendered network variables deep merged with the rendered
+// device variables. If the variables contain expressions, the values are the
+// evaluated ones, and a device additionally gets the network variables whose
+// evaluated value differs for the device (e.g. a network default referring to
+// a variable the device overrides).
+func merakiRenderedVariables(parent merakiParentVars, defaults, own, evaluated map[string]any, computed bool) (map[string]any, error) {
+	if !parent.device {
+		if computed {
+			// A copy already, see evaluateMerakiVariables
+			return evaluated, nil
+		}
+		// Shares values with the template defaults otherwise
+		return deepCopy(evaluated).(map[string]any), nil
+	}
+	// Cannot conflict, as the variables were merged successfully before
+	structure, err := mergeMerakiVariables(orderedMapToPlainMap(deepCopy(merakiVariablesNotOverridden(defaults, parent.own))).(map[string]any), own)
+	if err != nil {
+		return nil, fmt.Errorf("variables: %w", err)
+	}
+	if !computed {
+		return structure, nil
+	}
+	rendered := merakiValuesAt(structure, evaluated)
+	if changed := merakiVariablesChanged(orderedMapToPlainMap(parent.rendered).(map[string]any), evaluated); len(changed) > 0 {
+		// Cannot conflict, as both are parts of the evaluated variables
+		if rendered, err = mergeMerakiVariables(changed, rendered); err != nil {
+			return nil, fmt.Errorf("variables: %w", err)
+		}
+	}
+	// The evaluated variables may be shared with other devices
+	return deepCopy(rendered).(map[string]any), nil
 }
 
 // mergeMerakiVariablesLeveled merges the variables used to render the
