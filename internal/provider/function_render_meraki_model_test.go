@@ -691,6 +691,123 @@ func TestRenderMerakiModelFunction_MissingTemplate(t *testing.T) {
 	})
 }
 
+// Deep merged variables through the Terraform function, with YAML input decoded
+// into ordered maps (unlike the Go unit tests, which use plain maps).
+func TestRenderMerakiModelFunction_DeepMergedVariables(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					yaml = <<-EOT
+					meraki:
+					  templates:
+					    networks:
+					      - name: wireless
+					        type: model
+					        variables:
+					          wireless:
+					            corp_ssid: Data
+					            guest:
+					              ssid: Guest
+					              bw_down: 0
+					            radius: [10.0.0.1, 10.0.0.2]
+					        configuration:
+					          notes: '$${wireless.corp_ssid}/$${wireless.guest.ssid}/$${wireless.guest.bw_down}/$${join(",", wireless.radius)}'
+					      - name: branch
+					        type: model
+					        templates: [wireless]
+					        variables:
+					          wireless:
+					            guest:
+					              bw_down: 5000
+					  domains:
+					    - name: EMEA
+					      organizations:
+					        - name: Org1
+					          networks:
+					            - name: Net1
+					              templates: [branch]
+					              variables:
+					                wireless:
+					                  guest:
+					                    ssid: Guest-1
+					                  radius: [10.9.9.9]
+					EOT
+					result = provider::utils::render_meraki_model([local.yaml], {}, "", {})
+					network = local.result.resolved.meraki.domains[0].organizations[0].networks[0]
+				}
+
+				output "notes" {
+					value = local.network.notes
+				}
+				output "guest_bw_down" {
+					value = tostring(local.network.variables.wireless.guest.bw_down)
+				}
+				output "corp_ssid" {
+					value = local.network.variables.wireless.corp_ssid
+				}
+				`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckOutput("notes", "Data/Guest-1/5000/10.9.9.9"),
+					resource.TestCheckOutput("guest_bw_down", "5000"),
+					resource.TestCheckOutput("corp_ssid", "Data"),
+				),
+			},
+		},
+	})
+}
+
+func TestRenderMerakiModelFunction_VariableKindConflict(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_8_0),
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					yaml = <<-EOT
+					meraki:
+					  templates:
+					    networks:
+					      - name: wireless
+					        type: model
+					        variables:
+					          wireless:
+					            guest:
+					              ssid: Guest
+					        configuration:
+					          notes: "$${wireless.guest.ssid}"
+					  domains:
+					    - name: EMEA
+					      organizations:
+					        - name: Org1
+					          networks:
+					            - name: Net1
+					              templates: [wireless]
+					              variables:
+					                wireless:
+					                  guest: Guest-1
+					EOT
+					result = provider::utils::render_meraki_model([local.yaml], {}, "", {})
+				}
+
+				output "result" {
+					value = local.result.resolved
+				}
+				`,
+				ExpectError: regexp.MustCompile(`variable\s+"wireless.guest"\s+\(map\s+vs\s+scalar\)`),
+			},
+		},
+	})
+}
+
 // --- Template inheritance and default variables ---
 
 func TestRenderMerakiModel_TemplateInheritance(t *testing.T) {
@@ -968,9 +1085,453 @@ meraki:
 	if got := getMapVal(d3, "variables"); !reflect.DeepEqual(got, map[string]any{"role": "device-default", "floor": "0"}) {
 		t.Errorf("d3.variables: expected only effective device template defaults, got %#v", got)
 	}
-	effective := mergeShallow(getMapVal(net2, "variables"), getMapVal(d3, "variables"))
+	effective := mustMergeMerakiVariables(t, getMapVal(net2, "variables"), getMapVal(d3, "variables"))
 	if want := map[string]any{"role": "device-default", "rack": "network-rack", "floor": "0"}; !reflect.DeepEqual(effective, want) {
 		t.Errorf("network + device variables: got %#v, want %#v", effective, want)
+	}
+}
+
+func TestRenderMerakiModel_DeepMergedVariables(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: wireless
+        type: model
+        variables:
+          wireless:
+            corp_ssid: Data
+            guest:
+              ssid: Guest
+              bw_down: 0
+            radius: [10.0.0.1, 10.0.0.2]
+        configuration:
+          notes: '${wireless.corp_ssid}/${wireless.guest.ssid}/${wireless.guest.bw_down}/${join(",", wireless.radius)}'
+      - name: branch
+        type: model
+        templates: [wireless]
+        variables:
+          wireless:
+            guest:
+              bw_down: 5000
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Defaults
+              templates: [branch]
+            - name: Overridden
+              templates: [branch]
+              variables:
+                wireless:
+                  guest:
+                    ssid: Guest-2
+                  radius: [10.9.9.9]
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	org := toMapStringAny(getSliceVal(toMapStringAny(getSliceVal(getMapVal(result, "meraki"), "domains")[0]), "organizations")[0])
+	networks := getSliceVal(org, "networks")
+
+	// Template defaults are deep merged in application order
+	defaults := toMapStringAny(networks[0])
+	if got := defaults["notes"]; got != "Data/Guest/5000/10.0.0.1,10.0.0.2" {
+		t.Errorf("Defaults.notes: expected child map default merged into parent default, got %v", got)
+	}
+
+	// Network variables are deep merged onto the template defaults; lists are replaced
+	overridden := toMapStringAny(networks[1])
+	if got := overridden["notes"]; got != "Data/Guest-2/5000/10.9.9.9" {
+		t.Errorf("Overridden.notes: expected single map keys overridden and list replaced, got %v", got)
+	}
+	wantVars := map[string]any{"wireless": map[string]any{
+		"corp_ssid": "Data",
+		"guest":     map[string]any{"ssid": "Guest-2", "bw_down": 5000},
+		"radius":    []any{"10.9.9.9"},
+	}}
+	if got := getMapVal(overridden, "variables"); !reflect.DeepEqual(got, wantVars) {
+		t.Errorf("Overridden.variables: got %#v, want %#v", got, wantVars)
+	}
+
+	// The template definitions must not be modified by merging
+	tmpl := toMapStringAny(getSliceVal(getMapVal(getMapVal(model, "meraki"), "templates"), "networks")[0])
+	guest := getMapVal(getMapVal(getMapVal(tmpl, "variables"), "wireless"), "guest")
+	if !reflect.DeepEqual(guest, map[string]any{"ssid": "Guest", "bw_down": 0}) {
+		t.Errorf("template variables modified by merging: %#v", guest)
+	}
+}
+
+func TestRenderMerakiModel_DeepMergedDeviceVariables(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: net
+        type: model
+        variables:
+          switching:
+            mtu: 9000
+    devices:
+      - name: access
+        type: model
+        variables:
+          switching:
+            data_vlan: 10
+            ap_native_vlan: 511
+            mtu: 1500
+        configuration:
+          notes: "${switching.data_vlan}/${switching.ap_native_vlan}/${switching.mtu}"
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+              variables:
+                switching:
+                  data_vlan: 20
+              devices:
+                - name: d1
+                  templates: [access]
+                - name: d2
+                  templates: [access]
+                  variables:
+                    switching:
+                      ap_native_vlan: 1
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, result)
+	devices := getSliceVal(net, "devices")
+	d1 := toMapStringAny(devices[0])
+	// Precedence per key: network template default < device template default <
+	// network variable < device variable
+	if got := d1["notes"]; got != "20/511/1500" {
+		t.Errorf("d1.notes: got %v", got)
+	}
+	d2 := toMapStringAny(devices[1])
+	if got := d2["notes"]; got != "20/1/1500" {
+		t.Errorf("d2.notes: got %v", got)
+	}
+
+	// Only the keys of device template defaults that the network does not
+	// override are part of the rendered device variables, so that the rendered
+	// network variables deep merged with the rendered device variables are the
+	// variables used for rendering
+	if got, want := getMapVal(d1, "variables"), map[string]any{"switching": map[string]any{"ap_native_vlan": 511, "mtu": 1500}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("d1.variables: got %#v, want %#v", got, want)
+	}
+	for _, tc := range []struct {
+		device map[string]any
+		want   map[string]any
+	}{
+		{d1, map[string]any{"data_vlan": 20, "ap_native_vlan": 511, "mtu": 1500}},
+		{d2, map[string]any{"data_vlan": 20, "ap_native_vlan": 1, "mtu": 1500}},
+	} {
+		effective := mustMergeMerakiVariables(t, getMapVal(net, "variables"), getMapVal(tc.device, "variables"))
+		if got := getMapVal(effective, "switching"); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%v: network + device variables: got %#v, want %#v", tc.device["name"], got, tc.want)
+		}
+	}
+}
+
+func TestRenderMerakiModel_VariableKindConflicts(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "between templates",
+			yaml: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, variables: {k: {x: 1}}}
+      - {name: b, type: model, templates: [a], variables: {k: 5}}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - {name: Net1, templates: [b]}
+`,
+			want: `network "Net1": template defaults ("a") vs template defaults of "b": conflicting types for variable "k" (map vs scalar)`,
+		},
+		{
+			name: "template default and network variable",
+			yaml: `
+meraki:
+  templates:
+    networks:
+      - {name: a, type: model, variables: {servers: [1.1.1.1]}}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - {name: Net1, templates: [a], variables: {servers: 1.1.1.1}}
+`,
+			want: `network "Net1": template defaults ("a") vs network variables: conflicting types for variable "servers" (list vs scalar)`,
+		},
+		{
+			// The case that would make the rendered variables differ from the
+			// variables used for rendering: a map in the network template
+			// defaults, a scalar in the device template defaults and a map in
+			// the device variables
+			name: "network template default and device template default",
+			yaml: `
+meraki:
+  templates:
+    networks:
+      - {name: net, type: model, variables: {k: {a: 1}}}
+    devices:
+      - {name: dev, type: model, variables: {k: 5}, configuration: {notes: "${k.b}"}}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+              devices:
+                - {name: d1, templates: [dev], variables: {k: {b: 2}}}
+`,
+			want: `network "Net1": device "d1": network template defaults ("net") vs device template defaults ("dev"): conflicting types for variable "k" (map vs scalar)`,
+		},
+		{
+			name: "network variable and device template default",
+			yaml: `
+meraki:
+  templates:
+    devices:
+      - {name: dev, type: model, variables: {k: [1]}}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              variables: {k: 1}
+              devices:
+                - {name: d1, templates: [dev]}
+`,
+			want: `network "Net1": device "d1": network and device template defaults (none; "dev") vs network variables: conflicting types for variable "k" (list vs scalar)`,
+		},
+		{
+			name: "device variable",
+			yaml: `
+meraki:
+  templates:
+    networks:
+      - {name: net, type: model, variables: {k: {a: 1}}}
+    devices:
+      - {name: dev, type: model}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+              devices:
+                - {name: d1, templates: [dev], variables: {k: [1]}}
+`,
+			want: `network "Net1": device "d1": network variables and network and device template defaults ("net"; "dev") vs device variables: conflicting types for variable "k" (map vs list)`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := renderMerakiModel(mustYamlModel(t, tt.yaml), nil, false)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderMerakiModel_EnvTagsInDeepMergedVariables(t *testing.T) {
+	t.Setenv("MERAKI_TEST_TOKEN", "secret-token")
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - name: splunk
+        type: model
+        variables:
+          splunk:
+            url: https://default.example.com
+            token: !env MERAKI_TEST_TOKEN
+        configuration:
+          notes: "${splunk.url} Bearer ${splunk.token}"
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [splunk]
+              variables:
+                splunk:
+                  url: https://site.example.com
+`)
+	raw, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, raw)
+	if got := net["notes"]; got != "https://site.example.com Bearer !env MERAKI_TEST_TOKEN" {
+		t.Errorf("raw notes: got %v", got)
+	}
+	if got := getMapVal(getMapVal(net, "variables"), "splunk")["token"]; got != "!env MERAKI_TEST_TOKEN" {
+		t.Errorf("raw variables.splunk.token: expected tag to be kept, got %v", got)
+	}
+
+	resolvedRender, err := renderMerakiModel(model, nil, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resolvedNative, err := resolveYamlTags(resolvedRender)
+	if err != nil {
+		t.Fatalf("resolving tags: %v", err)
+	}
+	net = firstNetwork(t, toMapStringAny(resolvedNative))
+	if got := net["notes"]; got != "https://site.example.com Bearer secret-token" {
+		t.Errorf("resolved notes: got %v", got)
+	}
+	if got := getMapVal(getMapVal(net, "variables"), "splunk"); !reflect.DeepEqual(got, map[string]any{"url": "https://site.example.com", "token": "secret-token"}) {
+		t.Errorf("resolved variables.splunk: got %#v", got)
+	}
+}
+
+// A device-level null that hides a network-level map cannot be represented in
+// the rendered variables (see the function description): this test documents
+// the exception, so that a change of it is noticed.
+func TestRenderMerakiModel_DeviceNullHidingNetworkMap(t *testing.T) {
+	model := mustYamlModel(t, `
+meraki:
+  templates:
+    networks:
+      - {name: net, type: model, variables: {k: {a: 1}}}
+    devices:
+      - {name: dev, type: model, variables: {k: null}, configuration: {notes: '${jsonencode(k)}'}}
+  domains:
+    - name: EMEA
+      organizations:
+        - name: Org1
+          networks:
+            - name: Net1
+              templates: [net]
+              devices:
+                - {name: d1, templates: [dev], variables: {k: {b: 2}}}
+`)
+	result, err := renderMerakiModel(model, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	net := firstNetwork(t, result)
+	d1 := toMapStringAny(getSliceVal(net, "devices")[0])
+	// The device template default null hides the network template default map
+	if got := d1["notes"]; got != `{"b":2}` {
+		t.Errorf("d1.notes: got %v", got)
+	}
+	// The merged rendered variables also contain the hidden key a
+	effective := mustMergeMerakiVariables(t, getMapVal(net, "variables"), getMapVal(d1, "variables"))
+	if got, want := getMapVal(effective, "k"), map[string]any{"a": 1, "b": 2}; !reflect.DeepEqual(got, want) {
+		t.Errorf("network + device variables: got %#v, want %#v", got, want)
+	}
+}
+
+func mustMergeMerakiVariables(t *testing.T, base, overlay map[string]any) map[string]any {
+	t.Helper()
+	merged, err := mergeMerakiVariables(base, overlay)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return merged
+}
+
+func TestMergeMerakiVariables(t *testing.T) {
+	om := NewOrderedMap(2)
+	om.Set("a", 1)
+	om.Set("b", map[string]any{"x": 1})
+	tests := []struct {
+		name          string
+		base, overlay map[string]any
+		want          map[string]any
+	}{
+		{"nil base", nil, map[string]any{"a": 1}, map[string]any{"a": 1}},
+		{"scalar replaced", map[string]any{"a": 1, "b": 2}, map[string]any{"a": 3}, map[string]any{"a": 3, "b": 2}},
+		{"scalar of other type replaced", map[string]any{"a": 1}, map[string]any{"a": "!env A"}, map[string]any{"a": "!env A"}},
+		{"list replaced", map[string]any{"a": []any{1, 2}}, map[string]any{"a": []any{3}}, map[string]any{"a": []any{3}}},
+		{"empty list replaces", map[string]any{"a": []any{1, 2}}, map[string]any{"a": []any{}}, map[string]any{"a": []any{}}},
+		{"nested maps merged", map[string]any{"m": map[string]any{"a": 1, "n": map[string]any{"x": 1, "y": 2}}}, map[string]any{"m": map[string]any{"n": map[string]any{"y": 3}}}, map[string]any{"m": map[string]any{"a": 1, "n": map[string]any{"x": 1, "y": 3}}}},
+		{"empty map keeps base", map[string]any{"m": map[string]any{"a": 1}}, map[string]any{"m": map[string]any{}}, map[string]any{"m": map[string]any{"a": 1}}},
+		{"null replaces map", map[string]any{"a": map[string]any{"x": 1}}, map[string]any{"a": nil}, map[string]any{"a": nil}},
+		{"map replaces null", map[string]any{"a": nil}, map[string]any{"a": map[string]any{"x": 1}}, map[string]any{"a": map[string]any{"x": 1}}},
+		{"ordered maps merged", map[string]any{"o": om}, map[string]any{"o": map[string]any{"b": map[string]any{"y": 2}}}, map[string]any{"o": map[string]any{"a": 1, "b": map[string]any{"x": 1, "y": 2}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustMergeMerakiVariables(t, tt.base, tt.overlay); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMergeMerakiVariables_Conflicts(t *testing.T) {
+	base := map[string]any{
+		"scalar": 1,
+		"list":   []any{1},
+		"m":      map[string]any{"n": map[string]any{"x": 1}, "ok": 1},
+	}
+	overlay := map[string]any{
+		"scalar": map[string]any{"x": 1},
+		"list":   "a",
+		"m":      map[string]any{"n": []any{1}, "ok": 2},
+	}
+	_, err := mergeMerakiVariables(base, overlay)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	// All conflicts are reported, sorted, with their path and without values
+	want := `conflicting types for variable "list" (list vs scalar), variable "m.n" (map vs list), variable "scalar" (scalar vs map)`
+	if got := err.Error(); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestMerakiVariablesNotOverridden(t *testing.T) {
+	defaults := map[string]any{
+		"kept":    1,
+		"dropped": 2,
+		"partial": map[string]any{"a": 1, "b": 2},
+		"covered": map[string]any{"a": 1},
+		"unset":   map[string]any{"a": 1},
+	}
+	own := map[string]any{
+		"dropped": 3,
+		"partial": map[string]any{"a": 9},
+		"covered": map[string]any{"a": 9, "c": 3},
+		"unset":   nil,
+	}
+	want := map[string]any{"kept": 1, "partial": map[string]any{"b": 2}}
+	if got := merakiVariablesNotOverridden(defaults, own); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v, want %#v", got, want)
+	}
+	// Merging the result onto own equals merging own onto defaults
+	if a, b := mustMergeMerakiVariables(t, own, want), mustMergeMerakiVariables(t, defaults, own); !reflect.DeepEqual(a, b) {
+		t.Errorf("own + not overridden defaults = %#v, defaults + own = %#v", a, b)
 	}
 }
 

@@ -16,12 +16,14 @@ A template can inherit from other templates of the same kind (network or device)
 
 A template can define default values for template variables in its own `variables` attribute. The default variables of all applied templates (including inherited ones) are merged in application order, so that a template overrides the defaults of its parents and of templates applied before it. Default variable values are not rendered as templates.
 
+Variables are deep merged across all levels (template defaults, network and device `variables`): maps are merged recursively, so that e.g. a network can override a single key of a map variable defined by a template (`wireless: {guest_ssid: Guest-1}`) and keep its other keys, while lists and scalar values replace the value of a lower level as a whole. An empty map therefore keeps all keys of the lower level, while an empty list replaces the list of the lower level. A `null` value replaces the value of a lower level (e.g. to unset a default) and is replaced by any value. A variable must otherwise be the same kind of value (map, list or scalar) at every level, or an error naming the conflicting variables is returned.
+
 The following variables are available in templates, in increasing order of precedence:
 
 - Network templates: the default variables of the applied network templates and the network's `variables`.
 - Device templates: the default variables of the network's templates, the default variables of the applied device templates, the network's `variables` and the device's `variables`.
 
-The `variables` of a rendered network include the default variables of its templates. The `variables` of a rendered device include the default variables of its templates that are not overridden by the network's `variables`, so that the variables used for the device templates are always the rendered network `variables` merged with the rendered device `variables`.
+The `variables` of a rendered network include the default variables of its templates. The `variables` of a rendered device include the default variables of its templates that are not overridden by the network's `variables`, so that the variables used for the device templates are the rendered network `variables` deep merged with the rendered device `variables`. There are two exceptions, both caused by a device-level `null`: as `null` values are removed from the result, a variable that is `null` for a device (e.g. through a device template default) shows the value of the network instead; and if a device template default sets a map variable of the network template defaults to `null` and a network or device variable sets it to a map again, the merged variables also contain the keys of the network template default, which were not used.
 
 Only template content is rendered, `${}` expressions in the regular configuration are left untouched. Returns an error if the same attribute is a different kind of value (map, list, or scalar) in a template and in the configuration.
 

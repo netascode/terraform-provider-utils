@@ -7,6 +7,11 @@ description: |-
 
 # Changelog
 
+## Unreleased
+
+- Deep merge template variables in `render_meraki_model`. Map variables of template defaults, networks and devices are now merged recursively instead of replaced, so that a network or device can override a single key of a map variable (e.g. `wireless: {guest_ssid: Guest-1}`) and keep its other keys. A map variable of a network or device no longer removes the keys of a template default (also not an empty map); use a list for variables that a network or device must be able to replace as a whole. Lists and scalar values still replace the lower-level value as a whole, and `null` still replaces any value
+- Report an error in `render_meraki_model` if a template variable is a different kind of value (map, list or scalar) at different levels (template defaults, network and device `variables`), naming the conflicting variables
+
 ## 2.3.0
 
 - Remove the unused `GLOBAL` template variable from `render_meraki_model`
