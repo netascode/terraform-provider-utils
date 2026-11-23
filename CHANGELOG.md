@@ -1,4 +1,4 @@
-## Unreleased
+## 2.3.0
 
 - Remove the unused `GLOBAL` template variable from `render_meraki_model`
 - Add template inheritance (`templates` attribute of a template) to `render_meraki_model`
