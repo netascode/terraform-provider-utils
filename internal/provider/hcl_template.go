@@ -265,6 +265,13 @@ func hclTemplateFunctions() map[string]function.Function {
 		// go-cty stdlib: general
 		"coalescelist": stdlib.CoalesceListFunc,
 
+		// IP network (hcl_template_cidr.go)
+		"cidrcontains": cidrContainsFunc,
+		"cidrhost":     cidrHostFunc,
+		"cidrnetmask":  cidrNetmaskFunc,
+		"cidrsubnet":   cidrSubnetFunc,
+		"cidrsubnets":  cidrSubnetsFunc,
+
 		// HCL ext: try/can
 		"try": tryfunc.TryFunc,
 		"can": tryfunc.CanFunc,
