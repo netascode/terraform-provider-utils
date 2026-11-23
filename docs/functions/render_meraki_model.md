@@ -47,6 +47,8 @@ The following functions are available inside `${}` template expressions in model
 
 **Encoding:** `base64decode`, `base64encode`, `csvdecode`, `jsondecode`, `jsonencode`
 
+**IP Network:** `cidrcontains`, `cidrhost`, `cidrnetmask`, `cidrsubnet`, `cidrsubnets` (as in Terraform, except that host and subnet numbers that do not fit the prefix are errors, IPv4-mapped IPv6 prefixes are supported by `cidrhost` and `cidrsubnets` can allocate subnets at the start of the address space; `cidrcontains` as in OpenTofu)
+
 **Date/Time:** `formatdate`, `timeadd`
 
 **Boolean:** `alltrue`, `anytrue`

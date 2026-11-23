@@ -116,6 +116,7 @@ func (r RenderDeviceConfigsFunction) Definition(_ context.Context, _ function.De
 			"`values`, `zipmap`\n\n" +
 			"**Type Conversion:** `tobool`, `tonumber`, `tostring`\n\n" +
 			"**Encoding:** `base64decode`, `base64encode`, `csvdecode`, `jsondecode`, `jsonencode`\n\n" +
+			"**IP Network:** `cidrcontains`, `cidrhost`, `cidrnetmask`, `cidrsubnet`, `cidrsubnets` (as in Terraform, except that host and subnet numbers that do not fit the prefix are errors, IPv4-mapped IPv6 prefixes are supported by `cidrhost` and `cidrsubnets` can allocate subnets at the start of the address space; `cidrcontains` as in OpenTofu)\n\n" +
 			"**Date/Time:** `formatdate`, `timeadd`\n\n" +
 			"**Boolean:** `alltrue`, `anytrue`\n\n" +
 			"**Error Handling:** `try`, `can`, `fail`\n\n" +
